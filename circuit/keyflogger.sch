@@ -102,12 +102,6 @@ F 3 "http://ww1.microchip.com/downloads/en/devicedoc/30277d.pdf" V 1500 3350 50 
 	1    1800 3500
 	1    0    0    -1  
 $EndComp
-Wire Wire Line
-	2300 3300 2750 3300
-Wire Wire Line
-	2750 3300 2750 2150
-Wire Wire Line
-	2750 2150 4000 2150
 NoConn ~ 1600 3100
 $Comp
 L power:GND #PWR09
@@ -135,8 +129,6 @@ F 3 "" H 6000 2750 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	6000 2650 6000 2750
-Wire Wire Line
-	2300 3600 9800 3600
 $Comp
 L Device:C C2
 U 1 1 60372C1D
@@ -303,11 +295,6 @@ Wire Wire Line
 	2000 5000 4000 5000
 Wire Wire Line
 	2000 5100 4000 5100
-Wire Wire Line
-	4000 5200 2750 5200
-Wire Wire Line
-	2750 5200 2750 3300
-Connection ~ 2750 3300
 $Comp
 L local:VDD1 #PWR03
 U 1 1 6036E3C6
@@ -444,10 +431,10 @@ Wire Wire Line
 Wire Wire Line
 	8900 2250 8800 2250
 $Comp
-L Device:LED D2
+L Device:LED D3
 U 1 1 6038F120
 P 8250 5300
-F 0 "D2" H 8243 5517 50  0000 C CNN
+F 0 "D3" H 8243 5517 50  0000 C CNN
 F 1 "LED" H 8243 5426 50  0000 C CNN
 F 2 "LED_SMD:LED_0805_2012Metric" H 8250 5300 50  0001 C CNN
 F 3 "~" H 8250 5300 50  0001 C CNN
@@ -486,4 +473,31 @@ F 3 "" H 8900 5200 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	2000 1750 2150 1750
+$Comp
+L Diode:BAT54C D2
+U 1 1 6038E22E
+P 2850 3000
+F 0 "D2" V 2804 3088 50  0000 L CNN
+F 1 "BAT54C" V 2895 3088 50  0000 L CNN
+F 2 "Package_TO_SOT_SMD:SOT-23" H 2925 3125 50  0001 L CNN
+F 3 "http://www.diodes.com/_files/datasheets/ds11005.pdf" H 2770 3000 50  0001 C CNN
+	1    2850 3000
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	2300 3600 9800 3600
+Wire Wire Line
+	2850 2700 2850 2150
+Wire Wire Line
+	2850 2150 4000 2150
+Wire Wire Line
+	4000 5200 2850 5200
+Wire Wire Line
+	2850 5200 2850 3300
+Wire Wire Line
+	2300 3300 2550 3300
+Wire Wire Line
+	2550 3300 2550 3000
+Wire Wire Line
+	2550 3000 2650 3000
 $EndSCHEMATC
