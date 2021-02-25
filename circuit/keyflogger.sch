@@ -94,28 +94,28 @@ Wire Wire Line
 $Comp
 L Connector:Conn_PIC_ICSP_ICD J2
 U 1 1 6036F92E
-P 1800 3750
-F 0 "J2" H 2000 4200 50  0000 R CNN
-F 1 "Conn_PIC_ICSP_ICD" H 2400 4100 50  0000 R CNN
-F 2 "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical" H 1850 3900 50  0001 C CNN
-F 3 "http://ww1.microchip.com/downloads/en/devicedoc/30277d.pdf" V 1500 3600 50  0001 C CNN
-	1    1800 3750
+P 3700 3750
+F 0 "J2" H 3900 4200 50  0000 R CNN
+F 1 "Conn_PIC_ICSP_ICD" H 4300 4100 50  0000 R CNN
+F 2 "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical" H 3750 3900 50  0001 C CNN
+F 3 "http://ww1.microchip.com/downloads/en/devicedoc/30277d.pdf" V 3400 3600 50  0001 C CNN
+	1    3700 3750
 	1    0    0    -1  
 $EndComp
-NoConn ~ 1600 3350
+NoConn ~ 3500 3350
 $Comp
 L power:GND #PWR011
 U 1 1 60370F7A
-P 1600 4250
-F 0 "#PWR011" H 1600 4000 50  0001 C CNN
-F 1 "GND" H 1605 4077 50  0000 C CNN
-F 2 "" H 1600 4250 50  0001 C CNN
-F 3 "" H 1600 4250 50  0001 C CNN
-	1    1600 4250
+P 3500 4250
+F 0 "#PWR011" H 3500 4000 50  0001 C CNN
+F 1 "GND" H 3505 4077 50  0000 C CNN
+F 2 "" H 3500 4250 50  0001 C CNN
+F 3 "" H 3500 4250 50  0001 C CNN
+	1    3500 4250
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	1600 4150 1600 4250
+	3500 4150 3500 4250
 $Comp
 L power:GND #PWR08
 U 1 1 6037157A
@@ -153,7 +153,7 @@ F 3 "" H 3450 1800 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	3900 1750 4000 1750
-NoConn ~ 2300 3950
+NoConn ~ 4200 3950
 NoConn ~ 4000 2250
 NoConn ~ 8000 2150
 NoConn ~ 8000 2050
@@ -392,7 +392,7 @@ $EndComp
 Wire Wire Line
 	8400 2250 8500 2250
 Wire Wire Line
-	2300 3750 9450 3750
+	4200 3750 9450 3750
 Text Label 8150 3750 0    50   ~ 0
 SCL_ICSPDAT
 Text Label 8150 3850 0    50   ~ 0
@@ -458,28 +458,22 @@ Wire Wire Line
 $Comp
 L Diode:BAT54C D2
 U 1 1 6038E22E
-P 2850 3250
-F 0 "D2" V 2804 3338 50  0000 L CNN
-F 1 "BAT54C" V 2895 3338 50  0000 L CNN
-F 2 "Package_TO_SOT_SMD:SOT-23" H 2925 3375 50  0001 L CNN
-F 3 "http://www.diodes.com/_files/datasheets/ds11005.pdf" H 2770 3250 50  0001 C CNN
-	1    2850 3250
-	0    1    1    0   
+P 2850 3000
+F 0 "D2" V 2804 3088 50  0000 L CNN
+F 1 "BAT54C" V 2895 3088 50  0000 L CNN
+F 2 "Package_TO_SOT_SMD:SOT-23" H 2925 3125 50  0001 L CNN
+F 3 "http://www.diodes.com/_files/datasheets/ds11005.pdf" H 2770 3000 50  0001 C CNN
+	1    2850 3000
+	0    -1   1    0   
 $EndComp
 Wire Wire Line
-	2850 2950 2850 2150
+	2850 2700 2850 2150
 Wire Wire Line
 	2850 2150 4000 2150
 Wire Wire Line
 	4000 5750 2850 5750
 Wire Wire Line
-	2850 5750 2850 3550
-Wire Wire Line
-	2300 3550 2550 3550
-Wire Wire Line
-	2550 3550 2550 3250
-Wire Wire Line
-	2550 3250 2650 3250
+	2850 5750 2850 3300
 $Comp
 L Transistor_FET:2N7002 Q1
 U 1 1 6039BE8E
@@ -570,7 +564,7 @@ Wire Wire Line
 Wire Wire Line
 	10150 3850 10150 3550
 Wire Wire Line
-	2300 3850 10150 3850
+	4200 3850 10150 3850
 Wire Wire Line
 	10150 3850 10150 4050
 Connection ~ 10150 3850
@@ -596,4 +590,24 @@ Wire Wire Line
 Connection ~ 9800 4250
 Wire Wire Line
 	9800 4250 9850 4250
+Text Label 2250 1950 0    50   ~ 0
+USB1_D+
+Text Label 2250 2050 0    50   ~ 0
+USB1_D-
+Text Label 3050 5750 0    50   ~ 0
+~MCLR2~
+Text Label 3050 2150 0    50   ~ 0
+~MCLR1~
+Text Label 3050 3000 0    50   ~ 0
+~MCLR~
+Wire Wire Line
+	3050 3000 4500 3000
+Wire Wire Line
+	4500 3000 4500 3550
+Wire Wire Line
+	4500 3550 4200 3550
+Text Label 2250 5550 0    50   ~ 0
+USB2_D+
+Text Label 2250 5650 0    50   ~ 0
+USB2_D-
 $EndSCHEMATC
