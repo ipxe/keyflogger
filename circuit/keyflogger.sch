@@ -25,18 +25,6 @@ F 3 "http://ww1.microchip.com/downloads/en/DeviceDoc/41639A.pdf" H 6000 2050 50 
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:USB_B_Micro J1
-U 1 1 60366616
-P 1700 1950
-F 0 "J1" H 1757 2417 50  0000 C CNN
-F 1 "USB_B_Micro" H 1757 2326 50  0000 C CNN
-F 2 "Connector_USB:USB_Micro-B_Amphenol_10118194_Horizontal" H 1850 1900 50  0001 C CNN
-F 3 "~" H 1850 1900 50  0001 C CNN
-	1    1700 1950
-	1    0    0    -1  
-$EndComp
-NoConn ~ 2000 2150
-$Comp
 L power:GND #PWR07
 U 1 1 6036924D
 P 1700 2550
@@ -622,4 +610,29 @@ NoConn ~ 8000 1950
 Wire Wire Line
 	8000 5650 8150 5650
 NoConn ~ 8000 5550
+$Comp
+L Connector:USB_A J1
+U 1 1 6051C542
+P 1700 1950
+F 0 "J1" H 1757 2417 50  0000 C CNN
+F 1 "USB_A" H 1757 2326 50  0000 C CNN
+F 2 "Connector_USB:USB_A_CNCTech_1001-011-01101_Horizontal" H 1850 1900 50  0001 C CNN
+F 3 " ~" H 1850 1900 50  0001 C CNN
+	1    1700 1950
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:PWR_FLAG #FLG0101
+U 1 1 60526E11
+P 2250 1750
+F 0 "#FLG0101" H 2250 1825 50  0001 C CNN
+F 1 "PWR_FLAG" V 2250 1878 50  0000 L CNN
+F 2 "" H 2250 1750 50  0001 C CNN
+F 3 "~" H 2250 1750 50  0001 C CNN
+	1    2250 1750
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	2250 1750 2150 1750
+Connection ~ 2150 1750
 $EndSCHEMATC
