@@ -97,7 +97,7 @@ U 1 1 6036F92E
 P 3700 3750
 F 0 "J2" H 3900 4200 50  0000 R CNN
 F 1 "Conn_PIC_ICSP_ICD" H 4300 4100 50  0000 R CNN
-F 2 "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical" H 3750 3900 50  0001 C CNN
+F 2 "Connector:Tag-Connect_TC2030-IDC-NL_2x03_P1.27mm_Vertical" H 3750 3900 50  0001 C CNN
 F 3 "http://ww1.microchip.com/downloads/en/devicedoc/30277d.pdf" V 3400 3600 50  0001 C CNN
 	1    3700 3750
 	1    0    0    -1  
