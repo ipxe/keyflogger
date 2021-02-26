@@ -1,3 +1,9 @@
 *.bck
 *.sch-bak
+*.kicad_pcb-bak
 *-cache.lib
+fp-info-cache
+*.net
+*.ps
+*.pdf
+*.drl
