@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<descriptor xmlns="http://digimend.sourceforge.net"
+	    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	    xsi:schemaLocation="http://digimend.sourceforge.net hidrd.xsd">
+
+  <!-- Minimal report for a keyboard supporting the boot protocol -->
+  <usage_page>desktop</usage_page>
+  <usage>desktop_keyboard</usage>
+
+  <COLLECTION type="application">
+
+    <!-- All inputs are keys -->
+    <usage_page>keyboard</usage_page>
+
+    <!-- Bit flag inputs -->
+    <report_size>1</report_size>
+    <logical_minimum>0</logical_minimum>
+    <logical_maximum>1</logical_maximum>
+
+    <!-- Byte 0: modifier keys -->
+    <report_count>8</report_count>
+    <usage_minimum>keyboard_kb_leftcontrol</usage_minimum>
+    <usage_maximum>keyboard_kb_right_gui</usage_maximum>
+    <input><variable/></input>
+
+    <!-- Byte inputs -->
+    <report_size>8</report_size>
+    <logical_maximum>255</logical_maximum>
+
+    <!-- Byte 1: reserved -->
+    <report_count>1</report_count>
+    <input><constant/></input>
+
+    <!-- Bytes 2-7: key codes -->
+    <report_count>6</report_count>
+    <usage_minimum>0</usage_minimum>
+    <usage_maximum>255</usage_maximum>
+    <input/>
+
+  </COLLECTION>
+
+</descriptor>
