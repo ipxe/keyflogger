@@ -72,16 +72,16 @@ RA0_USBDP	equ	RA0	; USB D+
 RA1_USBDN	equ	RA1	; USB D-
 RA3_nMCLR	equ	RA3	; Reset
 RA4_NC		equ	RA4	; Not connected
-RA5_I2CEN	equ	RA5	; I2C enable (when connected to pin 2)
+RA5_NC		equ	RA5	; Not connected
 
 ;;; Port C pin assignments
 ;;;
-RC0_SCL		equ	RC0	; I2C clock
-RC1_SDA		equ	RC1	; I2C data
-RC2_I2CEN	equ	RC2	; I2C enable (when connected to pin 8)
+RC0_ICSPDAT	equ	RC0	; In-circuit programming data
+RC1_ICSPCLK	equ	RC1	; In-circuit programming clock
+RC2_nLED	equ	RC2	; Status LED
 RC3_NC		equ	RC3	; Not connected
-RC4_NC		equ	RC4	; Not connected
-RC5_LED		equ	RC5	; Status LED
+RC4_nTX		equ	RC4	; UART TX (inverted)
+RC5_RX		equ	RC5	; UART RX
 
 ;;; USB parameters
 ;;;
@@ -318,17 +318,9 @@ stablise:
 	clrf	LATC
 
 	;; Enable digital outputs (including unused pins lacking pull-ups)
-	banksel	TRISA
-	bcf	TRISA, RA5_I2CEN
-	bcf	TRISC, RC5_LED
-	bcf	TRISC, RC4_NC		; No weak pull-up available
-	bcf	TRISC, RC3_NC		; No weak pull-up available
-	bcf	TRISC, RC2_I2CEN
-
-	;; Connect to shared I2C bus
-	banksel	LATA
-	bsf	LATA, RA5_I2CEN
-	bsf	LATC, RC2_I2CEN
+	banksel	TRISC
+	movlw	( 1 << RC5_RX )
+	movwf	TRISC
 
 	;; Clear RAM
 	movlw	low ADR ( RAM_TOP )
@@ -389,6 +381,7 @@ idle:
 uart_init:
 	;; Set baud rate to 115200
 	banksel	BAUDCON
+	bsf	BAUDCON, SCKP
 	bsf	BAUDCON, BRG16
 	movlw	0x67
 	movwf	SPBRGL
@@ -509,9 +502,9 @@ led_irq:
 	;; Toggle LED state if applicable
 	banksel	LATC
 	clrw
-	btfss	LATC, RC5_LED		; If LED is off
+	btfss	LATC, RC2_nLED		; If LED is off
 	btfsc	com_led_stat, LED_BLINK	; ...or a blink is pending
-	movlw	( 1 << RC5_LED )	; ...then toggle LED state
+	movlw	( 1 << RC2_nLED )	; ...then toggle LED state
 	xorwf	LATC, f
 
 	;; Clear any pending blink flag
