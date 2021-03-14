@@ -923,6 +923,11 @@
       (scale (xyz 1 1 1))
       (rotate (xyz 0 0 0))
     )
+    (model ${KIPRJMOD}/snapeda/10118194-0001LF--3DModel-STEP-56544.STEP
+      (offset (xyz 0 1.85 -0.5))
+      (scale (xyz 1 1 1))
+      (rotate (xyz -90 0 0))
+    )
   )
 
   (module LED_SMD:LED_0805_2012Metric (layer F.Cu) (tedit 5F68FEF1) (tstamp 6044CE6D)
