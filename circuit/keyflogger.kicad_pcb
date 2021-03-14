@@ -659,6 +659,11 @@
       (scale (xyz 1 1 1))
       (rotate (xyz 0 0 0))
     )
+    (model ${KIPRJMOD}/snapeda/1001-011-01101--3DModel-STEP-56544.STEP
+      (offset (xyz -6.87 0 0))
+      (scale (xyz 1 1 1))
+      (rotate (xyz -90 0 -90))
+    )
   )
 
   (module Package_SO:SOIC-14_3.9x8.7mm_P1.27mm (layer F.Cu) (tedit 5D9F72B1) (tstamp 604D74BF)
