@@ -98,10 +98,11 @@ USB_SET_ADDR	equ	7
 
 ;;; Status LED
 ;;;
-LED_SEC		equ	183	; Timer0 overflows at 183Hz
-LED_BLINK	equ	7	; A blink is pending
-LED_ACTIVITY	equ	( 1 << LED_BLINK ) | ( LED_SEC / 20 )
-LED_ERROR	equ	( 1 << LED_BLINK ) | ( LED_SEC / 2 )
+LED_COUNT_SEC	equ	183	; Timer0 overflows at 183Hz
+LED_COUNT_FAST	equ	( LED_COUNT_SEC / 20 )
+LED_COUNT_SLOW	equ	( LED_COUNT_SEC / 2 )
+LED_ACTIVITY	equ	0	; Activity: single fast blink
+LED_ERROR	equ	4	; Error: several slow blinks
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -481,10 +482,6 @@ led_init:
 	;; Expire software countdown timer on first interrupt
 	movlw	1
 	movwf	com_led_count
-
-	;; LED steady on, ready to report successful activity
-	movlw	LED_ACTIVITY & ~( 1 << LED_BLINK )
-	movwf	com_led_stat
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -501,18 +498,20 @@ led_irq:
 
 	;; Toggle LED state if applicable
 	banksel	LATC
-	clrw
-	btfss	LATC, RC2_nLED		; If LED is off
-	btfsc	com_led_stat, LED_BLINK	; ...or a blink is pending
-	movlw	( 1 << RC2_nLED )	; ...then toggle LED state
-	xorwf	LATC, f
+	movlw	( 1 << RC2_nLED )
+	tstf	com_led_stat		; If a blink is pending
+	skpnz
+	btfsc	LATC, RC2_nLED		; ...or LED is currently off
+	xorwf	LATC, f			; ...then toggle LED state
 
-	;; Clear any pending blink flag
-	bcf	com_led_stat, LED_BLINK
-
-	;; Reload counter and return
-	movf	com_led_stat, w
+	;; Consume blink state and reload counter
+	movlw	LED_COUNT_FAST
+	lsrf	com_led_stat, f
+	skpz
+	movlw	LED_COUNT_SLOW
 	movwf	com_led_count
+
+	;; Return
 	retfie
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -979,8 +978,7 @@ usb_done:
 ;;;
 ep2:
 	;; Indicate activity via status LED
-	movlw	LED_ACTIVITY
-	movwf	com_led_stat
+	bsf	com_led_stat, LED_ACTIVITY
 
 	;; Refill EP2 IN buffer
 	call	ep2in_refill
