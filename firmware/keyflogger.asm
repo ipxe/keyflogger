@@ -337,13 +337,13 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 	btfsc	FSR0L, 4		; ...until we fall below 0x00f0
 	bra	zcom
 
+	;; Initialise status LED
+	call	led_init
+
 	;; Initialise UART
 	call	uart_init
 	movlw	'\f'
 	call	uart_print_character
-
-	;; Initialise status LED
-	call	led_init
 
 	;; Enable USB
 	call	usb_init
@@ -362,6 +362,54 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 idle:
 	clrwdt
 	bra	idle
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Status LED
+;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Initialise LED
+;;;
+led_init:
+	;; Expire software countdown timer on first interrupt
+	movlw	1
+	movwf	com_led_count
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle LED (Timer0) interrupt
+;;;
+led_irq:
+	;; Clear timer interrupt
+	bcf	INTCON, TMR0IF
+
+	;; Do nothing else until software countdown timer expires
+	decfsz	com_led_count, f
+	retfie
+
+	;; Toggle LED state if applicable
+	banksel	LATC
+	movlw	( 1 << RC2_nLED )
+	tstf	com_led_stat		; If a blink is pending
+	skpnz
+	btfsc	LATC, RC2_nLED		; ...or LED is currently off
+	xorwf	LATC, f			; ...then toggle LED state
+
+	;; Consume blink state and reload counter
+	movlw	LED_COUNT_FAST
+	lsrf	com_led_stat, f
+	skpz
+	movlw	LED_COUNT_SLOW
+	movwf	com_led_count
+
+	;; Return
+	retfie
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -465,54 +513,6 @@ uart_print_byte:
 
 	;; Return
 	return
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Status LED
-;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Initialise LED
-;;;
-led_init:
-	;; Expire software countdown timer on first interrupt
-	movlw	1
-	movwf	com_led_count
-	return
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;
-;;; Handle LED (Timer0) interrupt
-;;;
-led_irq:
-	;; Clear timer interrupt
-	bcf	INTCON, TMR0IF
-
-	;; Do nothing else until software countdown timer expires
-	decfsz	com_led_count, f
-	retfie
-
-	;; Toggle LED state if applicable
-	banksel	LATC
-	movlw	( 1 << RC2_nLED )
-	tstf	com_led_stat		; If a blink is pending
-	skpnz
-	btfsc	LATC, RC2_nLED		; ...or LED is currently off
-	xorwf	LATC, f			; ...then toggle LED state
-
-	;; Consume blink state and reload counter
-	movlw	LED_COUNT_FAST
-	lsrf	com_led_stat, f
-	skpz
-	movlw	LED_COUNT_SLOW
-	movwf	com_led_count
-
-	;; Return
-	retfie
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
