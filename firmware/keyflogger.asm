@@ -313,6 +313,10 @@ irq:
 	btfsc	INTCON, TMR0IF
 	bra	led_irq
 
+	;; Handle UART receive interrupt
+	btfsc	PIR1, RCIF
+	bra	uart_rx_irq
+
 	;; Handle UART transmit interrupt
 	btfss	PIR1, TXIF
 	bra	irq_not_uart_tx
@@ -396,7 +400,8 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 	call	usb_init
 
 	;; Enable interrupts
-	banksel	PIE2
+	banksel	PIE1
+	bsf	PIE1, RCIE
 	bsf	PIE2, USBIE
 	movlw	( 1 << GIE ) | ( 1 << PEIE ) | ( 1 << TMR0IE )
 	movwf	INTCON
@@ -480,6 +485,7 @@ uart_init:
 	clrf	SPBRGH
 	bsf	TXSTA, BRGH
 	bsf	TXSTA, TXEN
+	bsf	RCSTA, CREN
 	bsf	RCSTA, SPEN
 	return
 
@@ -651,6 +657,41 @@ uart_tx_hex:
 
 	;; Return
 	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART receive interrupt
+;;;
+uart_rx_irq:
+	;; Check for errors
+	banksel	RCREG
+	btfsc	RCSTA, FERR
+	bra	uart_rx_error
+	btfsc	RCSTA, OERR
+	bra	uart_rx_error
+
+	;; Consume received byte
+	movf	RCREG, w
+
+	;; Echo byte
+	call	uart_tx
+
+	;; Return
+	retfie
+
+uart_rx_error:
+	;; Consume and discard byte
+	movf	RCREG, w
+
+	;; Disable and reenable receiver
+	bcf	RCSTA, CREN
+	bsf	RCSTA, CREN
+
+	;; Report error
+	bsf	com_led_stat, LED_ERROR
+
+	;; Return
+	retfie
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
