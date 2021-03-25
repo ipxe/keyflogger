@@ -48,14 +48,27 @@
 ;;; Log character to UART
 ;;;
 logch	macro	ch
+#if DEBUG
 	movlw	ch
-	call	uart_print_character
+	call	uart_tx_char
+#endif
 	endm
 
-;;; Log byte to UART
+;;; Log register value to UART
 ;;;
-logb	macro
-	call	uart_print_byte
+logf	macro	reg
+#if DEBUG
+	movf	reg, w
+	call	uart_tx_hex
+#endif
+	endm
+
+;;; Drain UART transmit buffer
+;;;
+logsync	macro
+#if DEBUG
+	call	uart_tx_sync
+#endif
 	endm
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -210,6 +223,8 @@ bd_ep3in_adrh:		1
 
 com_led_count:		1	; Status LED blink countdown value
 com_led_stat:		1	; Status LED blink rate and pending flag
+com_uart_tx_prod:	1	; UART transmit producer index
+com_uart_tx_cons:	1	; UART transmit consumer indexs
 com_usb_data:		1	; Current descriptor data pointer (low byte)
 com_usb_len:		1	; Current descriptor remaining length
 com_usb_flags:		1	; USB state flags
@@ -249,6 +264,23 @@ ep2in_buffer:		USB_MTU_KB
 	endc
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; UART transmit ring (accessed via linear address)
+;;;
+
+UART_TX_LEN_LOG2	equ	7
+UART_TX_LEN		equ	1 << UART_TX_LEN_LOG2
+UART_TX_MASK		equ	UART_TX_LEN - 1
+
+	cblock	0x4d0
+uart_tx_ring:		UART_TX_LEN
+	endc
+
+	if	( low ADR ( uart_tx_ring ) ) != 0
+	error	"UART transmit ring is misaligned"
+	endif
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Main program
@@ -270,8 +302,10 @@ rst:
 ;;;
 	org	0x0004
 irq:
+	;; Select peripheral interrupt flag register bank
+	banksel	PIR1
+
 	;; Handle USB interrupts
-	banksel	PIR2
 	btfsc	PIR2, USBIF
 	bra	usb_irq
 
@@ -279,7 +313,21 @@ irq:
 	btfsc	INTCON, TMR0IF
 	bra	led_irq
 
+	;; Handle UART transmit interrupt
+	btfss	PIR1, TXIF
+	bra	irq_not_uart_tx
+	banksel	PIE1
+	btfsc	PIE1, TXIE
+	bra	uart_tx_irq
+irq_not_uart_tx:
+
 	;; Unexpected interrupt: reset system
+	logch	'I'
+	logch	'R'
+	logch	'Q'
+	logch	'?'
+	logch	'\n'
+	logsync
 	reset
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -342,8 +390,7 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 
 	;; Initialise UART
 	call	uart_init
-	movlw	'\f'
-	call	uart_print_character
+	logch	'\n'
 
 	;; Enable USB
 	call	usb_init
@@ -414,11 +461,7 @@ led_irq:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Debug UART
-;;;
-;;; Printing anything via the UART will trash the flags and both FSR
-;;; registers, but will preserve the contents of W and the bank selection
-;;; register.
+;;; UART
 ;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -442,47 +485,140 @@ uart_init:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Print ASCII character in W
+;;; Transmit next byte from transmit ring
 ;;;
-uart_print_character:
-	;; Preserve W in FSR0L
-	movwf	FSR0L
-
-	;; Preserve BSR in FSR0H
-	movf	BSR, w
+uart_tx_next:
+	;; Get next byte from transmit ring
+	movlw	high ADR ( uart_tx_ring )
 	movwf	FSR0H
+	movf	com_uart_tx_cons, w
+	andlw	UART_TX_MASK
+	movwf	FSR0L
+	moviw	FSR0
 
-	;; Wait for UART to become available
-	banksel	PIR1
-uart_print_wait:
-	btfss	PIR1, TXIF
-	bra	uart_print_wait
-
-	;; Write character to UART
+	;; Transmit byte
 	banksel	TXREG
-	movf	FSR0L, w
 	movwf	TXREG
 
-	;; Convert LF to CRLF
-	sublw	'\n'
-	bnz	uart_print_done
-	movlw	'\r'
-	call	uart_print_character
+	;; Increment consumer counter
+	incf	com_uart_tx_cons
 
-uart_print_done:
-	;; Restore registers and return
-	movf	FSR0H, w
-	movwf	BSR
-	movf	FSR0L, w
+	;; Disable transmit interrupt if ring is empty
+	movf	com_uart_tx_cons, w
+	subwf	com_uart_tx_prod, w
+	banksel	PIE1
+	skpnz
+	bcf	PIE1, TXIE
+
+	;; Return
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Print hex digit in W
+;;; Handle UART transmit interrupt
 ;;;
-uart_print_nibble:
+uart_tx_irq:
+	;; Transmit next byte
+	call	uart_tx_next
+
+	;; Return
+	retfie
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Drain UART transmit ring
+;;;
+uart_tx_sync:
+	;; Return when transmit ring is empty
+	banksel	PIE1
+	btfss	PIE1, TXIE
+	return
+
+	;; Wait for TXREG to become empty
+	banksel	PIR1
+uart_tx_wait:
+	btfss	PIR1, TXIF
+	bra	uart_tx_wait
+
+	;; Transmit next byte
+	call	uart_tx_next
+
+	;; Loop until transmit ring is empty
+	bra	uart_tx_sync
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Transmit byte in W
+;;;
+;;; Preserves: WREG, BSR, FSR1H
+;;;
+uart_tx:
 	;; Preserve W in FSR1L
 	movwf	FSR1L
+
+	;; Check for space in transmit ring
+	movf	com_uart_tx_cons, w
+	subwf	com_uart_tx_prod, w
+	btfsc	WREG, UART_TX_LEN_LOG2
+	bra	uart_tx_full
+
+	;; Add byte to transmit ring
+	movlw	high ADR ( uart_tx_ring )
+	movwf	FSR0H
+	movf	com_uart_tx_prod, w
+	andlw	UART_TX_MASK
+	movwf	FSR0L
+	movf	FSR1L, w
+	movwi	FSR0
+
+	;; Increment producer counter
+	incf	com_uart_tx_prod
+
+	;; Enable transmit interrupt, preserving bank selection register
+	movf	BSR, w
+	banksel	PIE1
+	bsf	PIE1, TXIE
+	movwf	BSR
+
+uart_tx_done:
+	;; Restore registers and return
+	movf	FSR1L, w
+	return
+
+uart_tx_full:
+	;; Report error
+	bsf	com_led_stat, LED_ERROR
+	bra	uart_tx_done
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Transmit character in W
+;;;
+;;; Preserves: WREG, BSR
+;;;
+uart_tx_char:
+	;; Preserve W in FSR1H
+	movwf	FSR1H
+
+	;; Convert LF to CRLF
+	sublw	'\n'
+	movlw	'\r'
+	skpnz
+	call	uart_tx
+
+	;; Restore W and transmit character
+	movf	FSR1H, w
+	bra	uart_tx
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Transmit hex digit in W
+;;;
+;;; Preserves: WREG, BSR
+;;;
+uart_tx_hex_digit:
+	;; Preserve W in FSR1H
+	movwf	FSR1H
 
 	;; Convert to ASCII character
 	andlw	0x0f
@@ -491,25 +627,27 @@ uart_print_nibble:
 	addlw	'a' - '0' - 10
 	addlw	'0' + 10
 
-	;; Print ASCII character
-	call	uart_print_character
+	;; Transmit character
+	call	uart_tx
 
 	;; Restore registers and return
-	movf	FSR1L, w
+	movf	FSR1H, w
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Print hex byte in W
+;;; Transmit hex byte in W
 ;;;
-uart_print_byte:
+;;; Preserves: WREG, BSR
+;;;
+uart_tx_hex:
 	;; Print high nibble
 	swapf	WREG
-	call	uart_print_nibble
+	call	uart_tx_hex_digit
 
 	;; Print low nibble
 	swapf	WREG
-	call	uart_print_nibble
+	call	uart_tx_hex_digit
 
 	;; Return
 	return
@@ -677,7 +815,11 @@ usb_irq:
 ;;;
 usb_reset:
 	;; Log reset
-	logch	'X'
+	logch	'U'
+	logch	'R'
+	logch	'S'
+	logch	'T'
+	logch	'\n'
 
 	;; Reinitialise USB
 	call	usb_init
@@ -698,9 +840,6 @@ ep0:
 ;;; Handle EP0 IN completion
 ;;;
 ep0in:
-	;; Log progress
-	logch	'.'
-
 	;; Refill EP0 IN buffer
 	call	ep0in_refill
 
@@ -728,9 +867,6 @@ ep0out:
 ;;; Handle EP0 OUT DATA completion
 ;;;
 ep0outdata:
-	;; Log progress
-	logch	':'
-
 	;; Refill EP0 OUT buffer
 	call	ep0out_refill
 	bra	epN_done
@@ -741,8 +877,24 @@ ep0setup:
 	;; Reset any in-progress operations
 	call	ep0_reset
 
-	;; Check for standard device SET requests
+	;; Log SETUP request
 	banksel	ep0out_buffer
+	logch	'S'
+	logf	ep0out_bmRequestType
+	logf	ep0out_bRequest
+	logch	':'
+	logf	ep0out_wValueH
+	logf	ep0out_wValueL
+	logch	':'
+	logf	ep0out_wIndexH
+	logf	ep0out_wIndexL
+	logch	':'
+	logf	ep0out_wLengthH
+	logf	ep0out_wLengthL
+	logch	'\n'
+	logsync
+
+	;; Check for standard device SET requests
 	tstf	ep0out_bmRequestType
 	bz	ep0setup_std_dev_set
 
@@ -805,18 +957,12 @@ ep0setup_std_intf_get:
 ;;; Handle class-specific interface SET requests
 ;;;
 ep0setup_cls_intf_set:
-	;; Log request
-	logch	'I'
-
 	;; Accept and ignore
 	bra	ep0setup_good
 
 ;;; Handle SET ADDRESS
 ;;;
 ep0setup_set_addr:
-	;; Log request
-	logch	'A'
-
 	;; Record device address to be applied in STATUS stage
 	movf	ep0out_wValueL, w
 	movwf	com_usb_data
@@ -826,9 +972,6 @@ ep0setup_set_addr:
 ;;; Handle SET CONFIGURATION
 ;;;
 ep0setup_set_config:
-	;; Log request
-	logch	'C'
-
 	;;  Accept and ignore
 	bra ep0setup_good
 
@@ -856,9 +999,6 @@ ep0setup_get_desc:
 ;;; Handle GET DEVICE DESCRIPTOR
 ;;;
 ep0setup_get_desc_device:
-	;; Log request
-	logch	'd'
-
 	;; Send device descriptor
 	movlw	low usb_desc_device
 	bra	ep0setup_good_desc
@@ -866,9 +1006,6 @@ ep0setup_get_desc_device:
 ;;; Handle GET CONFIGURATION DESCRIPTOR
 ;;;
 ep0setup_get_desc_config:
-	;; Log request
-	logch	'c'
-
 	;; Send configuration descriptor
 	movlw	USB_DESC_CONFIG_TLEN
 	movwf	com_usb_len
@@ -878,9 +1015,6 @@ ep0setup_get_desc_config:
 ;;; Handle GET STRING DESCRIPTOR
 ;;;
 ep0setup_get_desc_string:
-	;; Log request
-	logch	's'
-
 	;; Get string index
 	movf	ep0out_wValueL, w
 
@@ -912,9 +1046,6 @@ ep0setup_get_desc_report:
 ;;; Handle GET HID REPORT DESCRIPTOR
 ;;;
 ep0setup_get_desc_hid:
-	;; Log request
-	logch	'h'
-
 	;; Send HID report descriptor
 	movlw	USB_DESC_REPORT_KB_LEN
 	movwf	com_usb_len
@@ -924,8 +1055,6 @@ ep0setup_get_desc_hid:
 ;;; Complete USB interrupt handling
 ;;;
 ep0setup_bad:
-	;; Log error
-	logch	'#'
 	;; Stall EP0 until next SETUP
 	banksel	bd_ep0out_stat
 	movlw	( 1 << UOWN ) | ( 1 << BSTALL )

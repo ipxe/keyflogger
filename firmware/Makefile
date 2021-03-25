@@ -3,13 +3,14 @@ PK2CMD		:= pk2cmd
 HIDRD_CONVERT	:= hidrd-convert
 
 PICMODEL	:= 16f1454
+DEBUG		?= 1
 
 all : keyflogger.hex
 
 install : keyflogger.install
 
 keyflogger.hex : keyflogger.asm usb.inc kb.xml.inc Makefile
-	$(GPASM) -p p$(PICMODEL) -S 2 -o $@ $<
+	$(GPASM) -p p$(PICMODEL) -S 2 -D DEBUG=$(DEBUG) -o $@ $<
 
 %.xml.hex : %.xml Makefile
 	$(HIDRD_CONVERT) -i xml -o hex $< $@
