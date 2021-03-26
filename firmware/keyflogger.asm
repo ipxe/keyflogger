@@ -102,8 +102,7 @@ USB_VENDOR	equ	0x1209	; https://pid.codes/
 USB_PRODUCT	equ	0xffff	; TEMPORARY VALUE - not yet assigned
 USB_VERSION	equ	0x0100	; Product version 1.00
 USB_MTU_EP0	equ	8	; MTU for control endpoint
-USB_MTU_KB	equ	8	; MTU for keyboard endpoint
-USB_MTU_MS	equ	4	; MTU for mouse endpoint
+USB_MTU_DATA	equ	8	; MTU for keyboard/mouse data endpoints
 
 ;;; USB state flags
 ;;;
@@ -116,6 +115,14 @@ LED_COUNT_FAST	equ	( LED_COUNT_SEC / 20 )
 LED_COUNT_SLOW	equ	( LED_COUNT_SEC / 2 )
 LED_ACTIVITY	equ	0	; Activity: single fast blink
 LED_ERROR	equ	4	; Error: several slow blinks
+
+;;; UART RX state
+;;;
+UART_RX_FILL	equ	7	; Bit 7: accumulate hex digits
+UART_RX_MOUSE	equ	6	; Bit 6: accumulate into mouse buffer
+UART_RX_ERROR	equ	5	; Bit 5: error occurred
+UART_RX_DONE	equ	4	; Bit 4: accumulation complete
+UART_RX_MASK	equ	0x0f	; Bits 0-3: accumulated hex digit index
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -225,6 +232,7 @@ com_led_count:		1	; Status LED blink countdown value
 com_led_stat:		1	; Status LED blink rate and pending flag
 com_uart_tx_prod:	1	; UART transmit producer index
 com_uart_tx_cons:	1	; UART transmit consumer indexs
+com_uart_rx_state:	1	; UART receive state
 com_usb_data:		1	; Current descriptor data pointer (low byte)
 com_usb_len:		1	; Current descriptor remaining length
 com_usb_flags:		1	; USB state flags
@@ -237,6 +245,8 @@ com_usb_flags:		1	; USB state flags
 ;;;
 
 	cblock	0xa0
+
+ep_buffer:		0
 
 ;;; EP0 OUT
 ;;;
@@ -259,9 +269,19 @@ ep0in_buffer:		USB_MTU_EP0
 
 ;;; EP2 IN
 ;;;
-ep2in_buffer:		USB_MTU_KB
+ep2in_buffer:		USB_MTU_DATA
+
+;;; EP3 IN
+;;;
+ep3in_buffer:		USB_MTU_DATA
+
+ep_buffer_end:		0
 
 	endc
+
+	if	( high ADR ( ep_buffer_end ) ) != ( high ADR ( ep_buffer ) )
+	error	"USB buffers cross a page boundary"
+	endif
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -307,22 +327,22 @@ irq:
 
 	;; Handle USB interrupts
 	btfsc	PIR2, USBIF
-	bra	usb_irq
+	goto	usb_irq
 
 	;; Handle Timer0 overflow interrupt
 	btfsc	INTCON, TMR0IF
-	bra	led_irq
+	goto	led_irq
 
 	;; Handle UART receive interrupt
 	btfsc	PIR1, RCIF
-	bra	uart_rx_irq
+	goto	uart_rx_irq
 
 	;; Handle UART transmit interrupt
 	btfss	PIR1, TXIF
 	bra	irq_not_uart_tx
 	banksel	PIE1
 	btfsc	PIE1, TXIE
-	bra	uart_tx_irq
+	goto	uart_tx_irq
 irq_not_uart_tx:
 
 	;; Unexpected interrupt: reset system
@@ -668,18 +688,18 @@ uart_rx_irq:
 	btfsc	RCSTA, FERR
 	bra	uart_rx_error
 	btfsc	RCSTA, OERR
-	bra	uart_rx_error
+	bra	uart_rx_irq_error
 
 	;; Consume received byte
 	movf	RCREG, w
 
-	;; Echo byte
-	call	uart_tx
+	;; Handle received byte
+	call	uart_rx
 
 	;; Return
 	retfie
 
-uart_rx_error:
+uart_rx_irq_error:
 	;; Consume and discard byte
 	movf	RCREG, w
 
@@ -692,6 +712,157 @@ uart_rx_error:
 
 	;; Return
 	retfie
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART received byte in W
+;;;
+uart_rx:
+	;; Check for CR or LF
+	addlw	0 - '\r'
+	skpnz
+	bra	uart_rx_crlf
+	addlw	'\r' - '\n'
+	skpnz
+	bra	uart_rx_crlf
+
+	;; Discard all other characters if applicable
+	btfss	com_uart_rx_state, UART_RX_ERROR
+	btfsc	com_uart_rx_state, UART_RX_DONE
+	return
+
+	;; Accumulate hex digit if accumulating
+	btfsc	com_uart_rx_state, UART_RX_FILL
+	bra	uart_rx_hex_digit
+
+	;; Check for 'K' command
+	addlw	'\n' - 'K'
+	skpnz
+	bra	uart_rx_keyboard
+
+	;; Check for 'M' command
+	addlw	'K' - 'M'
+	skpnz
+	bra	uart_rx_mouse
+
+uart_rx_error:
+	;; Report error and return
+	bsf	com_led_stat, LED_ERROR
+	bsf	com_uart_rx_state, UART_RX_ERROR
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART received keyboard/mouse command
+;;;
+uart_rx_mouse:
+	;; Set accumulation buffer as mouse buffer
+	bsf	com_uart_rx_state, UART_RX_MOUSE
+uart_rx_keyboard:
+	;; Accumulate hex digits
+	bsf	com_uart_rx_state, UART_RX_FILL
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART received hex digit
+;;;
+uart_rx_hex_digit:
+	;; Check for decimal digit
+	addlw	'\n' - '0'
+	skpc
+	bra	uart_rx_error
+	addlw	-10
+	skpc
+	bra	uart_rx_hex_numeric
+
+	;; Check for uppercase hex digit
+	addlw	'0' + 10 - 'A'
+	skpc
+	bra	uart_rx_error
+	addlw	-6
+	skpc
+	bra	uart_rx_hex_alpha
+
+	;; Check for lowercase hex digit
+	addlw	'A' + 6 - 'a'
+	skpc
+	bra	uart_rx_error
+	addlw	-6
+	skpnc
+	bra	uart_rx_error
+
+	;; Convert to raw digit value
+uart_rx_hex_alpha:
+	addlw	6
+uart_rx_hex_numeric:
+	addlw	10
+
+	;; Preserve raw digit value in FSR1L
+	movwf	FSR1L
+
+	;; Set up FSR0 for access to selected buffer
+	movlw	high ADR ( ep_buffer )
+	movwf	FSR0H
+	movlw	low ADR ( ep2in_buffer )
+	btfsc	com_uart_rx_state, UART_RX_MOUSE
+	movlw	low ADR ( ep3in_buffer )
+	movwf	FSR0L
+	lsrf	com_uart_rx_state, w
+	andlw	( UART_RX_MASK >> 1 )
+	addwf	FSR0L, f
+
+	;; Append nibble to buffer
+	moviw	FSR0
+	swapf	WREG
+	andlw	~0x0f
+	iorwf	FSR1L, w
+	movwi	FSR0
+
+	;; Increment offset (discarding automatically after buffer is full)
+	incf	com_uart_rx_state
+
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART received CR or LF
+;;;
+uart_rx_crlf:
+	;; Do nothing unless accumulation was in progress
+	btfss	com_uart_rx_state, UART_RX_FILL
+	bra	uart_rx_crlf_done
+
+	;; Do nothing if an error had already occurred
+	btfsc	com_uart_rx_state, UART_RX_ERROR
+	bra	uart_rx_crlf_done
+
+	;; Fail if accumulation has not completed
+	btfss	com_uart_rx_state, UART_RX_DONE
+	bra	uart_rx_crlf_error
+
+	;; Identify completed endpoint
+	banksel	bd_ep2in_stat
+	btfsc	com_uart_rx_state, UART_RX_MOUSE
+	bra	uart_rx_crlf_mouse
+
+uart_rx_crlf_kb:
+	;; Pass ownership to USB subsystem
+	bsf	bd_ep2in_stat, UOWN
+	bra	uart_rx_crlf_done
+
+uart_rx_crlf_mouse:
+	;; Pass ownership to USB subsystem
+	bsf	bd_ep3in_stat, UOWN
+	bra	uart_rx_crlf_done
+
+uart_rx_crlf_error:
+	;; Report error
+	bsf	com_led_stat, LED_ERROR
+uart_rx_crlf_done:
+	;; Reset UART receive state and return
+	clrf	com_uart_rx_state
+	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -714,7 +885,7 @@ usb_init:
 	movwf	bd_ep0in_adrl
 	movlw	low ADR(ep2in_buffer)
 	movwf	bd_ep2in_adrl
-	movlw	high ADR(ep0out_buffer)
+	movlw	high ADR(ep_buffer)
 	movwf	bd_ep0out_adrh
 	movwf	bd_ep0in_adrh
 	movwf	bd_ep2in_adrh
@@ -727,8 +898,13 @@ usb_init:
 	call	ep0out_refill
 	call	ep0in_refill
 
-	;; Initialise EP2
+	;; Initialise EP2 IN
 	call	ep2in_refill
+	bsf	bd_ep2in_stat, UOWN
+
+	;; Initialise EP3 IN
+	call	ep3in_refill
+	bsf	bd_ep3in_stat, UOWN
 
 	;; Configure USB registers
 	banksel	UCON
@@ -817,7 +993,7 @@ ep0in_refill_loop_end:
 ep2in_refill:
 	;;  Reset buffer length
 	banksel	bd_ep2in_stat
-	movlw	USB_MTU_KB
+	movlw	USB_MTU_DATA
 	movwf	bd_ep2in_cnt
 
 	;; Update data toggle
@@ -826,8 +1002,26 @@ ep2in_refill:
 	xorlw	( ( 1 << DTS ) | ( 1 << DTSEN ) )
 	movwf	bd_ep2in_stat
 
-	;; Pass ownership to USB subsystem
-	bsf	bd_ep2in_stat, UOWN
+	;; Leave owned by software until buffer is filled
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Refill EP3 IN buffer
+;;;
+ep3in_refill:
+	;;  Reset buffer length
+	banksel	bd_ep3in_stat
+	movlw	USB_MTU_DATA
+	movwf	bd_ep3in_cnt
+
+	;; Update data toggle
+	movf	bd_ep3in_stat, w
+	andlw	( 1 << DTS )
+	xorlw	( ( 1 << DTS ) | ( 1 << DTSEN ) )
+	movwf	bd_ep3in_stat
+
+	;; Leave owned by software until buffer is filled
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -845,12 +1039,10 @@ usb_irq:
 	btfss	USTAT, ENDP1
 	bra	ep0
 
-	;; Check for EP2 transaction
+	;; Handle EP2/EP3 transaction
 	btfss	USTAT, ENDP0
-	bra	ep2
-
-	;; Unexpected interrupt: reset system
-	reset
+	bra	ep2in
+	bra	ep3in
 
 ;;; Handle USB reset
 ;;;
@@ -1144,14 +1336,26 @@ usb_done:
 	bcf	PIR2, USBIF
 	retfie
 
-;;; Handle EP2 completion
+;;; Handle EP2 IN completion
 ;;;
-ep2:
+ep2in:
 	;; Indicate activity via status LED
 	bsf	com_led_stat, LED_ACTIVITY
 
 	;; Refill EP2 IN buffer
 	call	ep2in_refill
+
+	;; Complete transaction
+	bra	epN_done
+
+;;; Handle EP3 IN completion
+;;;
+ep3in:
+	;; Indicate activity via status LED
+	bsf	com_led_stat, LED_ACTIVITY
+
+	;; Refill EP3 IN buffer
+	call	ep3in_refill
 
 	;; Complete transaction
 	bra	epN_done
@@ -1284,7 +1488,7 @@ usb_desc_ep_kb:
 	;; bmAttributes
 	dt	0x03			; Interrupt endpoint
 	;; wMaxPacketSize
-	dt	USB_MTU_KB, 0x00
+	dt	USB_MTU_DATA, 0x00
 	;; bInterval
 	dt	0x0a			; 10ms polling
 usb_desc_ep_kb_end:
