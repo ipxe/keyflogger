@@ -119,7 +119,7 @@ LED_ERROR	equ	4	; Error: several slow blinks
 ;;; UART RX state
 ;;;
 UART_RX_FILL	equ	7	; Bit 7: accumulate hex digits
-UART_RX_MOUSE	equ	6	; Bit 6: accumulate into mouse buffer
+UART_RX_MS	equ	6	; Bit 6: accumulate into mouse buffer
 UART_RX_ERROR	equ	5	; Bit 5: error occurred
 UART_RX_DONE	equ	4	; Bit 4: accumulation complete
 UART_RX_MASK	equ	0x0f	; Bits 0-3: accumulated hex digit index
@@ -738,12 +738,12 @@ uart_rx:
 	;; Check for 'K' command
 	addlw	'\n' - 'K'
 	skpnz
-	bra	uart_rx_keyboard
+	bra	uart_rx_kb
 
 	;; Check for 'M' command
 	addlw	'K' - 'M'
 	skpnz
-	bra	uart_rx_mouse
+	bra	uart_rx_ms
 
 uart_rx_error:
 	;; Report error and return
@@ -755,10 +755,10 @@ uart_rx_error:
 ;;;
 ;;; Handle UART received keyboard/mouse command
 ;;;
-uart_rx_mouse:
+uart_rx_ms:
 	;; Set accumulation buffer as mouse buffer
-	bsf	com_uart_rx_state, UART_RX_MOUSE
-uart_rx_keyboard:
+	bsf	com_uart_rx_state, UART_RX_MS
+uart_rx_kb:
 	;; Accumulate hex digits
 	bsf	com_uart_rx_state, UART_RX_FILL
 	return
@@ -805,7 +805,7 @@ uart_rx_hex_numeric:
 	movlw	high ADR ( ep_buffer )
 	movwf	FSR0H
 	movlw	low ADR ( ep2in_buffer )
-	btfsc	com_uart_rx_state, UART_RX_MOUSE
+	btfsc	com_uart_rx_state, UART_RX_MS
 	movlw	low ADR ( ep3in_buffer )
 	movwf	FSR0L
 	lsrf	com_uart_rx_state, w
@@ -843,15 +843,15 @@ uart_rx_crlf:
 
 	;; Identify completed endpoint
 	banksel	bd_ep2in_stat
-	btfsc	com_uart_rx_state, UART_RX_MOUSE
-	bra	uart_rx_crlf_mouse
+	btfsc	com_uart_rx_state, UART_RX_MS
+	bra	uart_rx_crlf_ms
 
 uart_rx_crlf_kb:
 	;; Pass ownership to USB subsystem
 	bsf	bd_ep2in_stat, UOWN
 	bra	uart_rx_crlf_done
 
-uart_rx_crlf_mouse:
+uart_rx_crlf_ms:
 	;; Pass ownership to USB subsystem
 	bsf	bd_ep3in_stat, UOWN
 	bra	uart_rx_crlf_done
@@ -885,13 +885,17 @@ usb_init:
 	movwf	bd_ep0in_adrl
 	movlw	low ADR(ep2in_buffer)
 	movwf	bd_ep2in_adrl
+	movlw	low ADR(ep3in_buffer)
+	movwf	bd_ep3in_adrl
 	movlw	high ADR(ep_buffer)
 	movwf	bd_ep0out_adrh
 	movwf	bd_ep0in_adrh
 	movwf	bd_ep2in_adrh
+	movwf	bd_ep3in_adrh
 	clrf	bd_ep0out_stat
 	clrf	bd_ep0in_stat
 	clrf	bd_ep2in_stat
+	clrf	bd_ep3in_stat
 
 	;; Initialise EP0
 	call	ep0_reset
@@ -912,6 +916,7 @@ usb_init:
 	movwf	UEP0
 	movlw	( 1 << EPHSHK ) | ( 1 << EPINEN )
 	movwf	UEP2
+	movwf	UEP3
 	bsf	UCFG, FSEN
 	bsf	UCFG, UPUEN
 	bsf	UCON, USBEN
@@ -1279,10 +1284,20 @@ ep0setup_get_desc_report:
 ;;; Handle GET HID REPORT DESCRIPTOR
 ;;;
 ep0setup_get_desc_hid:
-	;; Send HID report descriptor
+	;; Check interface number
+	btfsc	ep0out_wIndexL, 0
+	bra	ep0setup_get_desc_hid_ms
+ep0setup_get_desc_hid_kb:
+	;; Send keyboard HID report descriptor
 	movlw	USB_DESC_REPORT_KB_LEN
 	movwf	com_usb_len
 	movlw	low usb_desc_report_kb
+	bra	ep0setup_good_desc
+ep0setup_get_desc_hid_ms:
+	;; Send mouse HID report descriptor
+	movlw	USB_DESC_REPORT_MS_LEN
+	movwf	com_usb_len
+	movlw	low usb_desc_report_ms
 	bra	ep0setup_good_desc
 
 ;;; Complete USB interrupt handling
@@ -1420,7 +1435,7 @@ usb_desc_config:
 	;; wTotalLength
 	dt	USB_DESC_CONFIG_TLEN, 0x00
 	;; bNumInterfaces
-	dt	0x01			; Keyboard interface
+	dt	0x02			; Keyboard and mouse interfaces
 	;; bConfigurationValue
 	dt	0x01			; Only configuration value
 	;; iConfiguration
@@ -1494,6 +1509,68 @@ usb_desc_ep_kb:
 usb_desc_ep_kb_end:
 USB_DESC_EP_KB_LEN	equ	usb_desc_ep_kb_end - usb_desc_ep_kb
 
+;;; Mouse interface descriptor
+;;;
+usb_desc_intf_ms:
+	;; bLength
+	dt	USB_DESC_INTF_MS_LEN
+	;; bDescriptorType
+	dt	0x04			; INTERFACE descriptor type
+	;; bInterfaceNumber
+	dt	0x01
+	;; bAlternateSetting
+	dt	0x00
+	;; bNumEndpoints
+	dt	0x01
+	;; bInterfaceClass
+	dt	0x03			; HID class
+	;; bInterfaceSubClass
+	dt	0x00
+	;; bInterfaceProtocol
+	dt	0x00
+	;; iInterface
+	dt	0x00			; No interface name
+usb_desc_intf_ms_end:
+USB_DESC_INTF_MS_LEN	equ	usb_desc_intf_ms_end - usb_desc_intf_ms
+
+;;; Mouse HID descriptor
+;;;
+usb_desc_hid_ms:
+	;; bLength
+	dt	USB_DESC_HID_MS_LEN
+	;; bDescriptorType
+	dt	0x21			; HID descriptor
+	;; bcdHID
+	dt	0x11, 0x01		; HID specification version 1.11
+	;; bCountryCode
+	dt	0x00
+	;; bNumDescriptors
+	dt	0x01			; Single report descriptor
+	;; bDescriptorType
+	dt	0x22			; HID REPORT descriptor type
+	;; wDescriptorLength
+	dt	USB_DESC_REPORT_MS_LEN, 0x00
+usb_desc_hid_ms_end:
+USB_DESC_HID_MS_LEN	equ	usb_desc_hid_ms_end - usb_desc_hid_ms
+
+;;; Mouse interrupt endpoint descriptor
+;;;
+usb_desc_ep_ms:
+	;; bLength
+	dt	USB_DESC_EP_MS_LEN
+	;; bDescriptorType
+	dt	0x05			; ENDPOINT descriptor type
+	;; bEndpointAddress
+	dt	0x83			; EP3 IN
+	;; bmAttributes
+	dt	0x03			; Interrupt endpoint
+	;; wMaxPacketSize
+	dt	USB_MTU_DATA, 0x00
+	;; bInterval
+	dt	0x0a			; 10ms polling
+usb_desc_ep_ms_end:
+USB_DESC_EP_MS_LEN	equ	usb_desc_ep_ms_end - usb_desc_ep_ms
+
 ;;; End of configuration descriptor (including other embedded descriptors)
 ;;;
 usb_desc_config_total_end:
@@ -1507,9 +1584,16 @@ USB_DESC_CONFIG_TLEN	equ	usb_desc_config_total_end - usb_desc_config
 ;;; Keyboard HID report descriptor
 ;;;
 usb_desc_report_kb:
-#include "kb.xml.inc"
+#include "keyboard.xml.inc"
 usb_desc_report_kb_end:
 USB_DESC_REPORT_KB_LEN	equ	usb_desc_report_kb_end - usb_desc_report_kb
+
+;;; Mouse HID report descriptor
+;;;
+usb_desc_report_ms:
+#include "mouse.xml.inc"
+usb_desc_report_ms_end:
+USB_DESC_REPORT_MS_LEN	equ	usb_desc_report_ms_end - usb_desc_report_ms
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;

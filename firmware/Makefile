@@ -9,7 +9,7 @@ all : keyflogger.hex
 
 install : keyflogger.install
 
-keyflogger.hex : keyflogger.asm usb.inc kb.xml.inc Makefile
+keyflogger.hex : keyflogger.asm usb.inc keyboard.xml.inc mouse.xml.inc Makefile
 	$(GPASM) -p p$(PICMODEL) -S 2 -D DEBUG=$(DEBUG) -o $@ $<
 
 %.xml.hex : %.xml Makefile

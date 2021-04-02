@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<descriptor xmlns="http://digimend.sourceforge.net"
+	    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	    xsi:schemaLocation="http://digimend.sourceforge.net hidrd.xsd">
+
+  <!-- Minimal report for a graphics tablet compatible with QEMU -->
+  <usage_page>desktop</usage_page>
+  <usage>desktop_mouse</usage>
+
+  <COLLECTION type="application">
+
+    <!-- All inputs are pointers -->
+    <usage>desktop_pointer</usage>
+    <COLLECTION type="physical">
+
+      <!-- Byte 0: button inputs -->
+      <usage_page>button</usage_page>
+      <usage_minimum>1</usage_minimum>
+      <usage_maximum>3</usage_maximum>
+      <logical_minimum>0</logical_minimum>
+      <logical_maximum>1</logical_maximum>
+      <report_count>3</report_count>
+      <report_size>1</report_size>
+      <input><variable/></input>
+
+      <!-- Byte 0: padding -->
+      <report_count>1</report_count>
+      <report_size>5</report_size>
+      <input><constant/></input>
+
+      <!-- Bytes 1-4: absolute X & Y values -->
+      <usage_page>desktop</usage_page>
+      <usage>desktop_x</usage>
+      <usage>desktop_y</usage>
+      <logical_minimum>0</logical_minimum>
+      <logical_maximum>32767</logical_maximum>
+      <physical_minimum>0</physical_minimum>
+      <physical_maximum>32767</physical_maximum>
+      <report_size>16</report_size>
+      <report_count>2</report_count>
+      <input><variable/></input>
+
+      <!-- Byte 5: mouse wheel -->
+      <usage_page>desktop</usage_page>
+      <usage>desktop_wheel</usage>
+      <logical_minimum>-127</logical_minimum>
+      <logical_maximum>127</logical_maximum>
+      <physical_minimum>0</physical_minimum>
+      <physical_maximum>0</physical_maximum>
+      <report_size>8</report_size>
+      <report_count>1</report_count>
+      <input><variable/><relative/></input>
+
+      <!-- Bytes 6-7: padding -->
+      <report_count>2</report_count>
+      <report_size>8</report_size>
+      <input><constant/></input>
+
+    </COLLECTION>
+
+  </COLLECTION>
+
+</descriptor>
