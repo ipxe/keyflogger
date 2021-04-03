@@ -124,6 +124,24 @@ UART_RX_ERROR	equ	5	; Bit 5: error occurred
 UART_RX_DONE	equ	4	; Bit 4: accumulation complete
 UART_RX_MASK	equ	0x0f	; Bits 0-3: accumulated hex digit index
 
+;;; USB polling intervals
+;;;
+;;; The maximum latency for data received via an interrupt OUT
+;;; endpoint to be transmitted via the UART is around 4ms (115200
+;;; baud, 19 characters per message, two channels).  With a 10ms
+;;; polling interval for the interrupt IN endpoints, this gives a
+;;; maximum latency of 14ms from data being received via an interrupt
+;;; OUT endpoint until that data has been transmitted via the
+;;; corresponding interrupt IN endpoint on the other side.
+;;;
+;;; Setting the polling interval for the interrupt OUT endpoints to
+;;; 20ms ensures that we can never overflow the UART transmit ring,
+;;; and that an accumulated interrupt IN endpoint buffer is guaranteed
+;;; to have been consumed before the next accumulation begins.
+;;;
+USB_POLL_IN	equ	10	; 10ms polling
+USB_POLL_OUT	equ	20	; 20ms polling
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -267,9 +285,17 @@ ep0out_wLengthH:	1
 ;;;
 ep0in_buffer:		USB_MTU_EP0
 
+;;; EP2 OUT (must be 16-byte aligned for uart_tx_buffer)
+;;;
+ep2out_buffer:		USB_MTU_DATA
+
 ;;; EP2 IN
 ;;;
 ep2in_buffer:		USB_MTU_DATA
+
+;;; EP3 OUT (must be 16-byte aligned for uart_tx_buffer)
+;;;
+ep3out_buffer:		USB_MTU_DATA
 
 ;;; EP3 IN
 ;;;
@@ -281,6 +307,14 @@ ep_buffer_end:		0
 
 	if	( high ADR ( ep_buffer_end ) ) != ( high ADR ( ep_buffer ) )
 	error	"USB buffers cross a page boundary"
+	endif
+
+	if	( low ADR ( ep2out_buffer ) & 0x0f )
+	error	"EP2 OUT buffer must be 16-byte aligned"
+	endif
+
+	if	( low ADR ( ep3out_buffer ) & 0x0f )
+	error	"EP2 OUT buffer must be 16-byte aligned"
 	endif
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -576,11 +610,11 @@ uart_tx_wait:
 ;;;
 ;;; Transmit byte in W
 ;;;
-;;; Preserves: WREG, BSR, FSR1H
+;;; Preserves: WREG, BSR, FSR1
 ;;;
 uart_tx:
-	;; Preserve W in FSR1L
-	movwf	FSR1L
+	;; Preserve W in FSR0L
+	movwf	FSR0L
 
 	;; Check for space in transmit ring
 	movf	com_uart_tx_cons, w
@@ -593,9 +627,13 @@ uart_tx:
 	movwf	FSR0H
 	movf	com_uart_tx_prod, w
 	andlw	UART_TX_MASK
-	movwf	FSR0L
-	movf	FSR1L, w
+	xorwf	FSR0L, f
+	xorwf	FSR0L, w
+	xorwf	FSR0L, f
 	movwi	FSR0
+
+	;; Preserve W in FSR0L
+	movwf	FSR0L
 
 	;; Increment producer counter
 	incf	com_uart_tx_prod
@@ -608,7 +646,7 @@ uart_tx:
 
 uart_tx_done:
 	;; Restore registers and return
-	movf	FSR1L, w
+	movf	FSR0L, w
 	return
 
 uart_tx_full:
@@ -620,7 +658,7 @@ uart_tx_full:
 ;;;
 ;;; Transmit character in W
 ;;;
-;;; Preserves: WREG, BSR
+;;; Preserves: WREG, BSR, FSR1L
 ;;;
 uart_tx_char:
 	;; Preserve W in FSR1H
@@ -640,7 +678,7 @@ uart_tx_char:
 ;;;
 ;;; Transmit hex digit in W
 ;;;
-;;; Preserves: WREG, BSR
+;;; Preserves: WREG, BSR, FSR1L
 ;;;
 uart_tx_hex_digit:
 	;; Preserve W in FSR1H
@@ -664,7 +702,7 @@ uart_tx_hex_digit:
 ;;;
 ;;; Transmit hex byte in W
 ;;;
-;;; Preserves: WREG, BSR
+;;; Preserves: WREG, BSR, FSR1L
 ;;;
 uart_tx_hex:
 	;; Print high nibble
@@ -674,6 +712,30 @@ uart_tx_hex:
 	;; Print low nibble
 	swapf	WREG
 	call	uart_tx_hex_digit
+
+	;; Return
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Transmit 8 hex bytes from 16-byte aligned USB buffer at offset W
+;;;
+;;; Preserves: BSR
+;;;
+uart_tx_buffer:
+	;; Read byte from USB buffer
+	movwf	FSR1L
+uart_tx_buffer_loop:
+	movlw	high ep_buffer
+	movwf	FSR1H
+	moviw	FSR1++
+
+	;; Transmit hex byte
+	call	uart_tx_hex
+
+	;; Loop until reaching 8 bytes into a 16-byte aligned buffer
+	btfss	FSR1L, 3
+	bra	uart_tx_buffer_loop
 
 	;; Return
 	return
@@ -883,18 +945,26 @@ usb_init:
 	movwf	bd_ep0out_adrl
 	movlw	low ADR(ep0in_buffer)
 	movwf	bd_ep0in_adrl
+	movlw	low ADR(ep2out_buffer)
+	movwf	bd_ep2out_adrl
 	movlw	low ADR(ep2in_buffer)
 	movwf	bd_ep2in_adrl
+	movlw	low ADR(ep3out_buffer)
+	movwf	bd_ep3out_adrl
 	movlw	low ADR(ep3in_buffer)
 	movwf	bd_ep3in_adrl
 	movlw	high ADR(ep_buffer)
 	movwf	bd_ep0out_adrh
 	movwf	bd_ep0in_adrh
+	movwf	bd_ep2out_adrh
 	movwf	bd_ep2in_adrh
+	movwf	bd_ep3out_adrh
 	movwf	bd_ep3in_adrh
 	clrf	bd_ep0out_stat
 	clrf	bd_ep0in_stat
+	clrf	bd_ep2out_stat
 	clrf	bd_ep2in_stat
+	clrf	bd_ep3out_stat
 	clrf	bd_ep3in_stat
 
 	;; Initialise EP0
@@ -902,9 +972,15 @@ usb_init:
 	call	ep0out_refill
 	call	ep0in_refill
 
+	;; Initialise EP2 OUT
+	call	ep2out_refill
+
 	;; Initialise EP2 IN
 	call	ep2in_refill
 	bsf	bd_ep2in_stat, UOWN
+
+	;; Initialise EP3 OUT
+	call	ep3out_refill
 
 	;; Initialise EP3 IN
 	call	ep3in_refill
@@ -914,7 +990,7 @@ usb_init:
 	banksel	UCON
 	movlw	( 1 << EPHSHK ) | ( 1 << EPOUTEN ) | ( 1 << EPINEN )
 	movwf	UEP0
-	movlw	( 1 << EPHSHK ) | ( 1 << EPINEN )
+	movlw	( 1 << EPHSHK ) | ( 1 << EPOUTEN ) | ( 1 << EPINEN )
 	movwf	UEP2
 	movwf	UEP3
 	bsf	UCFG, FSEN
@@ -993,6 +1069,26 @@ ep0in_refill_loop_end:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
+;;; Refill EP2 OUT buffer
+;;;
+ep2out_refill:
+	;;  Reset buffer length
+	banksel	bd_ep2out_stat
+	movlw	USB_MTU_DATA
+	movwf	bd_ep2out_cnt
+
+	;; Update data toggle
+	movf	bd_ep2out_stat, w
+	andlw	( 1 << DTS )
+	xorlw	( ( 1 << DTS ) | ( 1 << DTSEN ) )
+	movwf	bd_ep2out_stat
+
+	;; Pass ownership to USB subsystem
+	bsf	bd_ep2out_stat, UOWN
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
 ;;; Refill EP2 IN buffer
 ;;;
 ep2in_refill:
@@ -1010,6 +1106,25 @@ ep2in_refill:
 	;; Leave owned by software until buffer is filled
 	return
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Refill EP3 OUT buffer
+;;;
+ep3out_refill:
+	;;  Reset buffer length
+	banksel	bd_ep3out_stat
+	movlw	USB_MTU_DATA
+	movwf	bd_ep3out_cnt
+
+	;; Update data toggle
+	movf	bd_ep3out_stat, w
+	andlw	( 1 << DTS )
+	xorlw	( ( 1 << DTS ) | ( 1 << DTSEN ) )
+	movwf	bd_ep3out_stat
+
+	;; Pass ownership to USB subsystem
+	bsf	bd_ep3out_stat, UOWN
+	return
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Refill EP3 IN buffer
@@ -1034,19 +1149,25 @@ ep3in_refill:
 ;;; Handle USB interrupts
 ;;;
 usb_irq:
+	;; Indicate activity via status LED
+	bsf	com_led_stat, LED_ACTIVITY
+
 	;; Check for USB reset
 	banksel	UIR
 	btfsc	UIR, URSTIF
 	bra	usb_reset
 
-	;; Check for EP0 transaction
-	banksel	USTAT
-	btfss	USTAT, ENDP1
-	bra	ep0
-
-	;; Handle EP2/EP3 transaction
-	btfss	USTAT, ENDP0
+	;; Handle according to endpoint and direction
+	lsrf	USTAT, w
+	lsrf	WREG, w
+	brw
+	bra	ep0out
+	bra	ep0in
+	reset
+	reset
+	bra	ep2out
 	bra	ep2in
+	bra	ep3out
 	bra	ep3in
 
 ;;; Handle USB reset
@@ -1066,14 +1187,6 @@ usb_reset:
 	banksel	UIR
 	bcf	UIR, URSTIF
 	bra	usb_done
-
-;;; Handle EP0 completion
-;;;
-ep0:
-	;; Check for EP0 IN completion
-	banksel	USTAT
-	btfss	USTAT, DIR
-	bra	ep0out
 
 ;;; Handle EP0 IN completion
 ;;;
@@ -1351,14 +1464,45 @@ usb_done:
 	bcf	PIR2, USBIF
 	retfie
 
+;;; Handle EP2 OUT completion
+;;;
+ep2out:
+	;; Transmit keyboard report
+	movlw	'K'
+	call	uart_tx_char
+	movlw	ep2out_buffer
+	call	uart_tx_buffer
+	movlw	'\n'
+	call	uart_tx_char
+
+	;; Refill EP2 OUT buffer
+	call	ep2out_refill
+
+	;; Complete transaction
+	bra	epN_done
+
 ;;; Handle EP2 IN completion
 ;;;
 ep2in:
-	;; Indicate activity via status LED
-	bsf	com_led_stat, LED_ACTIVITY
-
 	;; Refill EP2 IN buffer
 	call	ep2in_refill
+
+	;; Complete transaction
+	bra	epN_done
+
+;;; Handle EP3 OUT completion
+;;;
+ep3out:
+	;; Transmit mouse report
+	movlw	'M'
+	call	uart_tx_char
+	movlw	ep3out_buffer
+	call	uart_tx_buffer
+	movlw	'\n'
+	call	uart_tx_char
+
+	;; Refill EP3 OUT buffer
+	call	ep3out_refill
 
 	;; Complete transaction
 	bra	epN_done
@@ -1366,9 +1510,6 @@ ep2in:
 ;;; Handle EP3 IN completion
 ;;;
 ep3in:
-	;; Indicate activity via status LED
-	bsf	com_led_stat, LED_ACTIVITY
-
 	;; Refill EP3 IN buffer
 	call	ep3in_refill
 
@@ -1459,7 +1600,7 @@ usb_desc_intf_kb:
 	;; bAlternateSetting
 	dt	0x00
 	;; bNumEndpoints
-	dt	0x01
+	dt	0x02
 	;; bInterfaceClass
 	dt	0x03			; HID class
 	;; bInterfaceSubClass
@@ -1491,11 +1632,11 @@ usb_desc_hid_kb:
 usb_desc_hid_kb_end:
 USB_DESC_HID_KB_LEN	equ	usb_desc_hid_kb_end - usb_desc_hid_kb
 
-;;; Keyboard interrupt endpoint descriptor
+;;; Keyboard interrupt IN endpoint descriptor
 ;;;
-usb_desc_ep_kb:
+usb_desc_ep_kb_in:
 	;; bLength
-	dt	USB_DESC_EP_KB_LEN
+	dt	USB_DESC_EP_KB_IN_LEN
 	;; bDescriptorType
 	dt	0x05			; ENDPOINT descriptor type
 	;; bEndpointAddress
@@ -1505,9 +1646,27 @@ usb_desc_ep_kb:
 	;; wMaxPacketSize
 	dt	USB_MTU_DATA, 0x00
 	;; bInterval
-	dt	0x0a			; 10ms polling
-usb_desc_ep_kb_end:
-USB_DESC_EP_KB_LEN	equ	usb_desc_ep_kb_end - usb_desc_ep_kb
+	dt	USB_POLL_IN
+usb_desc_ep_kb_in_end:
+USB_DESC_EP_KB_IN_LEN	equ	usb_desc_ep_kb_in_end - usb_desc_ep_kb_in
+
+;;; Keyboard interrupt OUT endpoint descriptor
+;;;
+usb_desc_ep_kb_out:
+	;; bLength
+	dt	USB_DESC_EP_KB_OUT_LEN
+	;; bDescriptorType
+	dt	0x05			; ENDPOINT descriptor type
+	;; bEndpointAddress
+	dt	0x02			; EP2 OUT
+	;; bmAttributes
+	dt	0x03			; Interrupt endpoint
+	;; wMaxPacketSize
+	dt	USB_MTU_DATA, 0x00
+	;; bInterval
+	dt	USB_POLL_OUT
+usb_desc_ep_kb_out_end:
+USB_DESC_EP_KB_OUT_LEN	equ	usb_desc_ep_kb_out_end - usb_desc_ep_kb_out
 
 ;;; Mouse interface descriptor
 ;;;
@@ -1521,7 +1680,7 @@ usb_desc_intf_ms:
 	;; bAlternateSetting
 	dt	0x00
 	;; bNumEndpoints
-	dt	0x01
+	dt	0x02
 	;; bInterfaceClass
 	dt	0x03			; HID class
 	;; bInterfaceSubClass
@@ -1553,11 +1712,11 @@ usb_desc_hid_ms:
 usb_desc_hid_ms_end:
 USB_DESC_HID_MS_LEN	equ	usb_desc_hid_ms_end - usb_desc_hid_ms
 
-;;; Mouse interrupt endpoint descriptor
+;;; Mouse interrupt IN endpoint descriptor
 ;;;
-usb_desc_ep_ms:
+usb_desc_ep_ms_in:
 	;; bLength
-	dt	USB_DESC_EP_MS_LEN
+	dt	USB_DESC_EP_MS_IN_LEN
 	;; bDescriptorType
 	dt	0x05			; ENDPOINT descriptor type
 	;; bEndpointAddress
@@ -1567,9 +1726,27 @@ usb_desc_ep_ms:
 	;; wMaxPacketSize
 	dt	USB_MTU_DATA, 0x00
 	;; bInterval
-	dt	0x0a			; 10ms polling
-usb_desc_ep_ms_end:
-USB_DESC_EP_MS_LEN	equ	usb_desc_ep_ms_end - usb_desc_ep_ms
+	dt	USB_POLL_IN
+usb_desc_ep_ms_in_end:
+USB_DESC_EP_MS_IN_LEN	equ	usb_desc_ep_ms_in_end - usb_desc_ep_ms_in
+
+;;; Mouse interrupt OUT endpoint descriptor
+;;;
+usb_desc_ep_ms_out:
+	;; bLength
+	dt	USB_DESC_EP_MS_OUT_LEN
+	;; bDescriptorType
+	dt	0x05			; ENDPOINT descriptor type
+	;; bEndpointAddress
+	dt	0x03			; EP3 OUT
+	;; bmAttributes
+	dt	0x03			; Interrupt endpoint
+	;; wMaxPacketSize
+	dt	USB_MTU_DATA, 0x00
+	;; bInterval
+	dt	USB_POLL_OUT
+usb_desc_ep_ms_out_end:
+USB_DESC_EP_MS_OUT_LEN	equ	usb_desc_ep_ms_out_end - usb_desc_ep_ms_out
 
 ;;; End of configuration descriptor (including other embedded descriptors)
 ;;;
