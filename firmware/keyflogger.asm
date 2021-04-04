@@ -120,7 +120,7 @@ LED_ERROR	equ	4	; Error: several slow blinks
 ;;;
 UART_RX_FILL	equ	7	; Bit 7: accumulate hex digits
 UART_RX_MS	equ	6	; Bit 6: accumulate into mouse buffer
-UART_RX_ERROR	equ	5	; Bit 5: error occurred
+UART_RX_DISCARD	equ	5	; Bit 5: discard characters
 UART_RX_DONE	equ	4	; Bit 4: accumulation complete
 UART_RX_MASK	equ	0x0f	; Bits 0-3: accumulated hex digit index
 
@@ -748,7 +748,7 @@ uart_rx_irq:
 	;; Check for errors
 	banksel	RCREG
 	btfsc	RCSTA, FERR
-	bra	uart_rx_error
+	bra	uart_rx_irq_error
 	btfsc	RCSTA, OERR
 	bra	uart_rx_irq_error
 
@@ -789,16 +789,24 @@ uart_rx:
 	bra	uart_rx_crlf
 
 	;; Discard all other characters if applicable
-	btfss	com_uart_rx_state, UART_RX_ERROR
-	btfsc	com_uart_rx_state, UART_RX_DONE
+	btfsc	com_uart_rx_state, UART_RX_DISCARD
 	return
+
+	;; Check for excess characters after completing accumulation
+	btfsc	com_uart_rx_state, UART_RX_DONE
+	bra	uart_rx_error
 
 	;; Accumulate hex digit if accumulating
 	btfsc	com_uart_rx_state, UART_RX_FILL
 	bra	uart_rx_hex_digit
 
+	;; Check for '#' command
+	addlw	'\n' - '#'
+	skpnz
+	bra	uart_rx_comment
+
 	;; Check for 'K' command
-	addlw	'\n' - 'K'
+	addlw	'#' - 'K'
 	skpnz
 	bra	uart_rx_kb
 
@@ -810,7 +818,17 @@ uart_rx:
 uart_rx_error:
 	;; Report error and return
 	bsf	com_led_stat, LED_ERROR
-	bsf	com_uart_rx_state, UART_RX_ERROR
+	clrf	com_uart_rx_state
+	bsf	com_uart_rx_state, UART_RX_DISCARD
+	return
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle UART received comment command
+;;;
+uart_rx_comment:
+	;; Discard remaining characters
+	bsf	com_uart_rx_state, UART_RX_DISCARD
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -881,7 +899,7 @@ uart_rx_hex_numeric:
 	iorwf	FSR1L, w
 	movwi	FSR0
 
-	;; Increment offset (discarding automatically after buffer is full)
+	;; Increment offset and mark as complete when buffer is full
 	incf	com_uart_rx_state
 
 	return
@@ -893,10 +911,6 @@ uart_rx_hex_numeric:
 uart_rx_crlf:
 	;; Do nothing unless accumulation was in progress
 	btfss	com_uart_rx_state, UART_RX_FILL
-	bra	uart_rx_crlf_done
-
-	;; Do nothing if an error had already occurred
-	btfsc	com_uart_rx_state, UART_RX_ERROR
 	bra	uart_rx_crlf_done
 
 	;; Fail if accumulation has not completed
@@ -1174,6 +1188,7 @@ usb_irq:
 ;;;
 usb_reset:
 	;; Log reset
+	logch	'#'
 	logch	'U'
 	logch	'R'
 	logch	'S'
@@ -1230,6 +1245,7 @@ ep0setup:
 
 	;; Log SETUP request
 	banksel	ep0out_buffer
+	logch	'#'
 	logch	'S'
 	logf	ep0out_bmRequestType
 	logf	ep0out_bRequest
