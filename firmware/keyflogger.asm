@@ -287,7 +287,7 @@ ep0out_wLengthH:	1
 ;;;
 ep0in_buffer:		USB_MTU_EP0
 
-;;; EP2 OUT (must be 16-byte aligned for uart_tx_buffer)
+;;; EP2 OUT
 ;;;
 ep2out_buffer:		USB_MTU_DATA
 
@@ -295,7 +295,7 @@ ep2out_buffer:		USB_MTU_DATA
 ;;;
 ep2in_buffer:		USB_MTU_DATA
 
-;;; EP3 OUT (must be 16-byte aligned for uart_tx_buffer)
+;;; EP3 OUT
 ;;;
 ep3out_buffer:		USB_MTU_DATA
 
@@ -309,14 +309,6 @@ ep_buffer_end:		0
 
 	if	( high ADR ( ep_buffer_end ) ) != ( high ADR ( ep_buffer ) )
 	error	"USB buffers cross a page boundary"
-	endif
-
-	if	( low ADR ( ep2out_buffer ) & 0x0f )
-	error	"EP2 OUT buffer must be 16-byte aligned"
-	endif
-
-	if	( low ADR ( ep3out_buffer ) & 0x0f )
-	error	"EP2 OUT buffer must be 16-byte aligned"
 	endif
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -737,22 +729,44 @@ uart_tx_hex:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Transmit 8 hex bytes from 16-byte aligned USB buffer at offset W
+;;; Transmit zero-padded USB buffer with descriptor at offset W
 ;;;
 uart_tx_buffer:
-	;; Read byte from USB buffer
+	;; Get buffer length and address
 	movwf	FSR0L
-uart_tx_buffer_loop:
-	movlw	high ep_buffer
+	movlw	high bd_ep0out_stat
 	movwf	FSR0H
-	moviw	FSR0++
+	moviw	( bd_ep0out_cnt - bd_ep0out_stat )[FSR0]
+	movwf	com_r0
+	movwf	com_r1
+	moviw	( bd_ep0out_adrl - bd_ep0out_stat )[FSR0]
+	movwf	FSR0L
+	movlw	high ADR(ep_buffer)
+	movwf	FSR0H
 
-	;; Transmit hex byte
+	;; Transmit zero padding (if any)
+uart_tx_buffer_pad_loop:
+	btfsc	com_r0, 3
+	bra	uart_tx_buffer_pad_loop_end
+	movlw	0x00
 	call	uart_tx_hex
+	incf	com_r0
+	bra	uart_tx_buffer_pad_loop
+uart_tx_buffer_pad_loop_end:
 
-	;; Loop until reaching 8 bytes into a 16-byte aligned buffer
-	btfss	FSR0L, 3
-	bra	uart_tx_buffer_loop
+	;; Transmit buffer data (if any)
+	incf	com_r1
+	bra	uart_tx_buffer_data_loop_test
+uart_tx_buffer_data_loop:
+	moviw	FSR0++
+	call	uart_tx_hex
+uart_tx_buffer_data_loop_test:
+	decfsz	com_r1
+	bra	uart_tx_buffer_data_loop
+
+	;; Transmit CRLF
+	movlw	'\n'
+	call	uart_tx_char
 
 	;; Return
 	return
@@ -1516,10 +1530,8 @@ ep2out:
 	;; Transmit keyboard report
 	movlw	'K'
 	call	uart_tx_char
-	movlw	ep2out_buffer
+	movlw	bd_ep2out_stat
 	call	uart_tx_buffer
-	movlw	'\n'
-	call	uart_tx_char
 
 	;; Refill EP2 OUT buffer
 	call	ep2out_refill
@@ -1542,10 +1554,8 @@ ep3out:
 	;; Transmit mouse report
 	movlw	'M'
 	call	uart_tx_char
-	movlw	ep3out_buffer
+	movlw	bd_ep3out_stat
 	call	uart_tx_buffer
-	movlw	'\n'
-	call	uart_tx_char
 
 	;; Refill EP3 OUT buffer
 	call	ep3out_refill
