@@ -448,7 +448,8 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 
 	;; Initialise UART
 	call	uart_init
-	logch	'\n'
+	movlw	'\n'
+	call	uart_tx_char
 
 	;; Enable USB
 	call	usb_init
