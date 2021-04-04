@@ -246,6 +246,8 @@ bd_ep3in_adrh:		1
 
 	cblock	0x70
 
+com_r0:			1	; Scratch register 0
+com_r1:			1	; Scratch register 1
 com_led_count:		1	; Status LED blink countdown value
 com_led_stat:		1	; Status LED blink rate and pending flag
 com_uart_tx_prod:	1	; UART transmit producer index
@@ -333,6 +335,20 @@ uart_tx_ring:		UART_TX_LEN
 	if	( low ADR ( uart_tx_ring ) ) != 0
 	error	"UART transmit ring is misaligned"
 	endif
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Data stack (accessed via FSR1)
+;;;
+
+STACK_LEN		equ	48
+
+	cblock	0x620
+
+stack:			STACK_LEN
+stack_end:		0
+
+	endc
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -442,6 +458,12 @@ zram:	movwi	FSR0--			; Clear DPR/GPR via linear window
 zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 	btfsc	FSR0L, 4		; ...until we fall below 0x00f0
 	bra	zcom
+
+	;; Initialise stack pointer
+	movlw	high stack_end
+	movwf	FSR1H
+	movlw	low stack_end
+	movwf	FSR1L
 
 	;; Initialise status LED
 	call	led_init
@@ -609,13 +631,15 @@ uart_tx_wait:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Transmit byte in W
-;;;
-;;; Preserves: WREG, BSR, FSR1
+;;; Transmit byte in W, preserving all registers
 ;;;
 uart_tx:
-	;; Preserve W in FSR0L
-	movwf	FSR0L
+	;; Preserve registers on stack
+	movwi	--FSR1
+	movf	FSR0H, w
+	movwi	--FSR1
+	movf	FSR0L, w
+	movwi	--FSR1
 
 	;; Check for space in transmit ring
 	movf	com_uart_tx_cons, w
@@ -628,13 +652,9 @@ uart_tx:
 	movwf	FSR0H
 	movf	com_uart_tx_prod, w
 	andlw	UART_TX_MASK
-	xorwf	FSR0L, f
-	xorwf	FSR0L, w
-	xorwf	FSR0L, f
-	movwi	FSR0
-
-	;; Preserve W in FSR0L
 	movwf	FSR0L
+	moviw	2[FSR1]
+	movwi	FSR0
 
 	;; Increment producer counter
 	incf	com_uart_tx_prod
@@ -647,7 +667,11 @@ uart_tx:
 
 uart_tx_done:
 	;; Restore registers and return
-	movf	FSR0L, w
+	moviw	FSR1++
+	movwf	FSR0L
+	moviw	FSR1++
+	movwf	FSR0H
+	moviw	FSR1++
 	return
 
 uart_tx_full:
@@ -657,13 +681,11 @@ uart_tx_full:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Transmit character in W
-;;;
-;;; Preserves: WREG, BSR, FSR1L
+;;; Transmit character in W, preserving all registers
 ;;;
 uart_tx_char:
-	;; Preserve W in FSR1H
-	movwf	FSR1H
+	;; Preserve registers on stack
+	movwi	--FSR1
 
 	;; Convert LF to CRLF
 	sublw	'\n'
@@ -671,19 +693,17 @@ uart_tx_char:
 	skpnz
 	call	uart_tx
 
-	;; Restore W and transmit character
-	movf	FSR1H, w
+	;; Restore registers and transmit character
+	moviw	FSR1++
 	bra	uart_tx
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Transmit hex digit in W
-;;;
-;;; Preserves: WREG, BSR, FSR1L
+;;; Transmit hex digit in W, preserving all registers
 ;;;
 uart_tx_hex_digit:
-	;; Preserve W in FSR1H
-	movwf	FSR1H
+	;; Preserve registers on stack
+	movwi	--FSR1
 
 	;; Convert to ASCII character
 	andlw	0x0f
@@ -693,17 +713,15 @@ uart_tx_hex_digit:
 	addlw	'0' + 10
 
 	;; Transmit character
-	call	uart_tx
+	call	uart_tx_char
 
 	;; Restore registers and return
-	movf	FSR1H, w
+	moviw	FSR1++
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
-;;; Transmit hex byte in W
-;;;
-;;; Preserves: WREG, BSR, FSR1L
+;;; Transmit hex byte in W, preserving all registers
 ;;;
 uart_tx_hex:
 	;; Print high nibble
@@ -721,21 +739,19 @@ uart_tx_hex:
 ;;;
 ;;; Transmit 8 hex bytes from 16-byte aligned USB buffer at offset W
 ;;;
-;;; Preserves: BSR
-;;;
 uart_tx_buffer:
 	;; Read byte from USB buffer
-	movwf	FSR1L
+	movwf	FSR0L
 uart_tx_buffer_loop:
 	movlw	high ep_buffer
-	movwf	FSR1H
-	moviw	FSR1++
+	movwf	FSR0H
+	moviw	FSR0++
 
 	;; Transmit hex byte
 	call	uart_tx_hex
 
 	;; Loop until reaching 8 bytes into a 16-byte aligned buffer
-	btfss	FSR1L, 3
+	btfss	FSR0L, 3
 	bra	uart_tx_buffer_loop
 
 	;; Return
@@ -879,8 +895,8 @@ uart_rx_hex_alpha:
 uart_rx_hex_numeric:
 	addlw	10
 
-	;; Preserve raw digit value in FSR1L
-	movwf	FSR1L
+	;; Preserve raw digit value in scratch register
+	movwf	com_r0
 
 	;; Set up FSR0 for access to selected buffer
 	movlw	high ADR ( ep_buffer )
@@ -897,7 +913,7 @@ uart_rx_hex_numeric:
 	moviw	FSR0
 	swapf	WREG
 	andlw	~0x0f
-	iorwf	FSR1L, w
+	iorwf	com_r0, w
 	movwi	FSR0
 
 	;; Increment offset and mark as complete when buffer is full
@@ -1046,6 +1062,12 @@ ep0out_refill:
 ;;; Refill EP0 IN buffer
 ;;;
 ep0in_refill:
+	;; Preserve stack pointer in scratch registers
+	movf	FSR1L, w
+	movwf	com_r0
+	movf	FSR1H, w
+	movwf	com_r1
+
 	;; Prepare indirect registers for copying descriptor
 	movf	com_usb_data, w
 	movwf	FSR0L
@@ -1080,6 +1102,12 @@ ep0in_refill_loop_end:
 
 	;; Pass ownership to USB subsystem
 	bsf	bd_ep0in_stat, UOWN
+
+	;; Restore stack pointer and return
+	movf	com_r1, w
+	movwf	FSR1H
+	movf	com_r0, w
+	movwf	FSR1L
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1140,6 +1168,7 @@ ep3out_refill:
 	;; Pass ownership to USB subsystem
 	bsf	bd_ep3out_stat, UOWN
 	return
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
 ;;; Refill EP3 IN buffer
