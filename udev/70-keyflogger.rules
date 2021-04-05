@@ -1,0 +1,20 @@
+ACTION=="remove", GOTO="keyflogger_end"
+SUBSYSTEM!="hidraw", GOTO="keyflogger_end"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="ebeb", GOTO="keyflogger_device"
+GOTO="keyflogger_end"
+
+LABEL="keyflogger_device"
+GROUP="dialout", MODE="0660"
+ATTRS{bInterfaceClass}=="03", ATTRS{bInterfaceSubClass}=="01", ATTRS{bInterfaceProtocol}=="01", GOTO="keyflogger_keyboard"
+ATTRS{bInterfaceClass}=="03", ATTRS{bInterfaceSubClass}=="00", ATTRS{bInterfaceProtocol}=="00", GOTO="keyflogger_mouse"
+GOTO="keyflogger_end"
+
+LABEL="keyflogger_keyboard"
+DRIVERS=="usb", SYMLINK+="keyflogger/keyboard keyflogger/$attr{busnum}-$attr{devpath}/keyboard"
+GOTO="keyflogger_end"
+
+LABEL="keyflogger_mouse"
+DRIVERS=="usb", SYMLINK+="keyflogger/mouse keyflogger/$attr{busnum}-$attr{devpath}/mouse"
+GOTO="keyflogger_end"
+
+LABEL="keyflogger_end"
