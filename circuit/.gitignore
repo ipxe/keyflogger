@@ -7,3 +7,7 @@ fp-info-cache
 *.ps
 *.pdf
 *.drl
+*-drc.txt
+*-erc.txt
+build
+*-fab.zip

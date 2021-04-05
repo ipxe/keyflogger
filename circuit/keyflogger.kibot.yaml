@@ -1,0 +1,39 @@
+kibot:
+  version: 1
+
+preflight:
+  check_zone_fills: true
+  run_drc: true
+  run_erc: true
+
+outputs:
+
+  - name: 'layers'
+    type: gerber
+    dir: build
+    layers:
+      - 'F.Cu'
+      - 'B.Cu'
+      - 'F.SilkS'
+      - 'B.SilkS'
+      - 'F.Mask'
+      - 'B.Mask'
+      - 'Edge.Cuts'
+    options:
+      plot_footprint_values: false
+      subtract_mask_from_silk: true
+
+  - name: 'drill'
+    type: excellon
+    dir: build
+    options:
+      map: ps
+      metric_units: false
+      pth_and_npth_single_file: false
+
+  - name: 'fab'
+    type: compress
+    options:
+      files:
+        - from_output: layers
+        - from_output: drill
