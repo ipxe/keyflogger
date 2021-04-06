@@ -37,21 +37,12 @@ outputs:
     dir: build
     options:
       columns:
-        - field: 'Part'
-          join: ['Value', 'Footprint', 'Description']
-          name: 'Description'
-        - field: 'Quantity Per PCB'
-          name: 'Quantity'
-        - field: 'MFR'
-          name: 'Manufacturer'
-        - field: 'MPN'
-          name: 'Manufacturer Part Number'
-        - field: 'SPR'
-          name: 'Supplier'
-        - field: 'SPN'
-          name: 'Supplier Part Number'
         - field: 'References'
           name: 'Designator'
+        - field: 'MPN'
+        - field: 'Quantity Per PCB'
+          name: 'Quantity'
+        - field: 'Link'
       csv:
         hide_pcb_info: true
         hide_stats_info: true
