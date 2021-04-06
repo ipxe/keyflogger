@@ -756,4 +756,37 @@ Wire Wire Line
 	7600 6000 7600 5250
 Wire Wire Line
 	7600 5250 6950 5250
+$Comp
+L Mechanical:Fiducial F1
+U 1 1 606C58FD
+P 1100 7250
+F 0 "F1" H 1185 7296 50  0000 L CNN
+F 1 "Fiducial" H 1185 7205 50  0000 L CNN
+F 2 "Fiducial:Fiducial_1mm_Mask2mm" H 1100 7250 50  0001 C CNN
+F 3 "~" H 1100 7250 50  0001 C CNN
+	1    1100 7250
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:Fiducial F2
+U 1 1 606C6736
+P 1850 7250
+F 0 "F2" H 1935 7296 50  0000 L CNN
+F 1 "Fiducial" H 1935 7205 50  0000 L CNN
+F 2 "Fiducial:Fiducial_1mm_Mask2mm" H 1850 7250 50  0001 C CNN
+F 3 "~" H 1850 7250 50  0001 C CNN
+	1    1850 7250
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:Fiducial F3
+U 1 1 606C6CA2
+P 2600 7250
+F 0 "F3" H 2685 7296 50  0000 L CNN
+F 1 "Fiducial" H 2685 7205 50  0000 L CNN
+F 2 "Fiducial:Fiducial_1mm_Mask2mm" H 2600 7250 50  0001 C CNN
+F 3 "~" H 2600 7250 50  0001 C CNN
+	1    2600 7250
+	1    0    0    -1  
+$EndComp
 $EndSCHEMATC
