@@ -32,6 +32,32 @@ outputs:
       metric_units: false
       pth_and_npth_single_file: false
 
+  - name: 'bom'
+    type: bom
+    dir: build
+    options:
+      columns:
+        - field: 'Part'
+          join: ['Value', 'Footprint', 'Description']
+          name: 'Description'
+        - field: 'Quantity Per PCB'
+          name: 'Quantity'
+        - field: 'MFR'
+          name: 'Manufacturer'
+        - field: 'MPN'
+          name: 'Manufacturer Part Number'
+        - field: 'SPR'
+          name: 'Supplier'
+        - field: 'SPN'
+          name: 'Supplier Part Number'
+        - field: 'References'
+          name: 'Designator'
+      csv:
+        hide_pcb_info: true
+        hide_stats_info: true
+        quote_all: true
+      ref_separator: ','
+
   - name: 'fab'
     type: compress
     options:
