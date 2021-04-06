@@ -18,6 +18,7 @@ outputs:
       - 'B.SilkS'
       - 'F.Mask'
       - 'B.Mask'
+      - 'F.Paste'
       - 'Edge.Cuts'
     options:
       plot_footprint_values: false
