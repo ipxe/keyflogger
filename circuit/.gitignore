@@ -9,5 +9,8 @@ fp-info-cache
 *.drl
 *-drc.txt
 *-erc.txt
-build
+fab
+asm
 *-fab.zip
+*-asm.zip
+*-bom.csv

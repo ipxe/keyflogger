@@ -10,7 +10,7 @@ outputs:
 
   - name: 'layers'
     type: gerber
-    dir: build
+    dir: fab
     layers:
       - 'F.Cu'
       - 'B.Cu'
@@ -26,15 +26,22 @@ outputs:
 
   - name: 'drill'
     type: excellon
-    dir: build
+    dir: fab
     options:
       map: ps
       metric_units: false
       pth_and_npth_single_file: false
 
+  - name: 'fab'
+    type: compress
+    options:
+      files:
+        - from_output: layers
+        - from_output: drill
+
   - name: 'xypos'
     type: position
-    dir: build
+    dir: asm
     options:
       columns:
         - 'Ref'
@@ -48,20 +55,27 @@ outputs:
 
   - name: 'diagram'
     type: pdf_pcb_print
-    dir: build
+    dir: asm
     layers:
       - 'F.CrtYd'
       - 'F.Fab'
 
   - name: 'model'
     type: step
-    dir: build
+    dir: asm
     options:
       download: false
 
+  - name: 'asm'
+    type: compress
+    options:
+      files:
+        - from_output: xypos
+        - from_output: diagram
+        - from_output: model
+
   - name: 'bom'
     type: bom
-    dir: build
     options:
       columns:
         - field: 'References'
@@ -75,18 +89,3 @@ outputs:
         hide_stats_info: true
         quote_all: true
       ref_separator: ','
-
-  - name: 'fab'
-    type: compress
-    options:
-      files:
-        - from_output: layers
-        - from_output: drill
-
-  - name: 'asm'
-    type: compress
-    options:
-      files:
-        - from_output: xypos
-        - from_output: diagram
-        - from_output: model
