@@ -21,16 +21,15 @@ outputs:
       - 'F.Paste'
       - 'Edge.Cuts'
     options:
-      plot_footprint_values: false
       subtract_mask_from_silk: true
+      use_gerber_x2_attributes: false
+      use_protel_extensions: true
 
   - name: 'drill'
     type: excellon
     dir: fab
     options:
       map: ps
-      metric_units: false
-      pth_and_npth_single_file: false
 
   - name: 'fab'
     type: compress
