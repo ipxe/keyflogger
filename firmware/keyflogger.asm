@@ -111,7 +111,7 @@ RC5_RX		equ	RC5	; UART RX
 ;;; USB parameters
 ;;;
 USB_VENDOR	equ	0x1209	; https://pid.codes/
-USB_PRODUCT	equ	0xebeb	; TEMPORARY VALUE - not yet assigned
+USB_PRODUCT	equ	0xebeb	; https://pid.codes/1209/EBEB/
 USB_VERSION	equ	0x0100	; Product version 1.00
 USB_MTU_EP0	equ	8	; MTU for control endpoint
 USB_MTU_DATA	equ	8	; MTU for keyboard/mouse data endpoints
