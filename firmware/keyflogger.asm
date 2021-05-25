@@ -166,6 +166,7 @@ USB_POLL_OUT	equ	20	; 20ms polling
 ;;;
 cfg1	set	0x3fff
 cfg1	set	cfg1 & _FOSC_INTOSC
+cfg1	set	cfg1 & _WDTE_NSLEEP
 
 ;;; Configuration word 2
 ;;;
@@ -427,10 +428,7 @@ init:
 	bsf	OSCCON, SPLLMULT
 
 	;; Wait for oscillator to become stable
-stablise:
-	comf	OSCSTAT, w
-	andlw	( 1 << PLLRDY ) | ( 1 << HFIOFR ) | ( 1 << LFIOFR )
-	bnz	stablise
+	call	stabilise
 
 	;; Enable active clock tuning (required for USB)
 	banksel	ACTCON
@@ -503,6 +501,17 @@ zcom:	movwi	FSR0--			; Clear common RAM via bank 1
 idle:
 	clrwdt
 	bra	idle
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Oscillator stabilisation
+;;;
+stabilise:
+	banksel	OSCSTAT
+	comf	OSCSTAT, w
+	andlw	( 1 << PLLRDY ) | ( 1 << HFIOFR ) | ( 1 << LFIOFR )
+	bnz	stabilise
+	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1101,8 +1110,8 @@ usb_init:
 	bsf	UCFG, FSEN
 	bsf	UCFG, UPUEN
 	bsf	UCON, USBEN
-	bsf	UIE, TRNIE
-	bsf	UIE, URSTIE
+	movlw	( 1 << IDLEIE ) | ( 1 << TRNIE ) | ( 1 << URSTIE )
+	movwf	UIE
 	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1221,6 +1230,10 @@ usb_irq:
 	banksel	UIR
 	btfsc	UIR, URSTIF
 	bra	usb_reset
+
+	;; Check for USB suspend
+	btfsc	UIR, IDLEIF
+	bra	usb_suspend
 
 	;; Handle according to endpoint and direction
 	lsrf	USTAT, w
@@ -1560,6 +1573,83 @@ ep3out:
 ep3in:
 	;; Complete transaction
 	bra	epN_done
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Handle USB suspend
+;;;
+usb_suspend:
+	;; Log suspend
+	logch	'#'
+	logch	'U'
+	logch	'I'
+	logch	'D'
+	logch	'L'
+	logch	'E'
+	logch	'\n'
+	logsync
+
+	;; Acknowledge idle interrupt and disable USB interrupts
+	bcf	UIR, IDLEIF
+	clrf	UIE
+	banksel	PIR2
+	bcf	PIR2, USBIF
+
+	;; Preserve PIE1 on stack and disable UART interrupts
+	banksel	PIE1
+	movf	PIE1, w
+	movwi	--FSR1
+	clrf	PIE1
+
+	;; Disable Timer0 and switch off LED
+	bcf	INTCON, TMR0IE
+	banksel	LATC
+	bsf	LATC, RC2_nLED
+
+	;; Suspend USB core
+	banksel	UCON
+	bsf	UCON, SUSPND
+
+	;; Sleep (with interrupts disabled) until USB activity is detected
+	bsf	UIE, ACTVIE
+	sleep
+	nop
+
+	;; Wait for oscillator to become stable
+	call	stabilise
+
+	;; Enable Timer0 (and allow subsequent ISR to restore LED state)
+	bsf	INTCON, TMR0IE
+
+	;; Restore PIE1
+	moviw	FSR1++
+	banksel	PIE1
+	movwf	PIE1
+
+	;; Resume USB core
+	banksel	UCON
+	bcf	UCON, SUSPND
+usb_resume_wait:
+	bcf	UIR, ACTVIF
+	btfsc	UIR, ACTVIF
+	bra	usb_resume_wait
+
+	;; Log resume
+	logch	'#'
+	logch	'U'
+	logch	'A'
+	logch	'C'
+	logch	'T'
+	logch	'V'
+	logch	'\n'
+	logsync
+
+	;; Reenable USB interrupts
+	movlw	( 1 << IDLEIE ) | ( 1 << TRNIE ) | ( 1 << URSTIE )
+	movwf	UIE
+
+	;; Complete USB activity interrupt
+	bra	usb_done
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
