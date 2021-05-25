@@ -639,13 +639,13 @@ uart_tx_sync:
 uart_tx_sync_loop:
 	banksel	PIE1
 	btfss	PIE1, TXIE
-	bra	uart_tx_sync_wait_done
+	bra	uart_tx_sync_wait_trmt
 
 	;; Wait for TXREG to become empty
-uart_tx_sync_wait:
+uart_tx_sync_wait_txreg:
 	banksel	PIR1
 	btfss	PIR1, TXIF
-	bra	uart_tx_sync_wait
+	bra	uart_tx_sync_wait_txreg
 
 	;; Transmit next byte
 	call	uart_tx_next
@@ -653,8 +653,13 @@ uart_tx_sync_wait:
 	;; Loop until transmit ring is empty
 	bra	uart_tx_sync_loop
 
+	;; Wait for transmitter to become idle
+uart_tx_sync_wait_trmt:
+	banksel	TXSTA
+	btfss	TXSTA, TRMT
+	bra	uart_tx_sync_wait_trmt
+
 	;; Restore registers and return
-uart_tx_sync_wait_done:
 	moviw	FSR1++
 	movwf	FSR0L
 	moviw	FSR1++
