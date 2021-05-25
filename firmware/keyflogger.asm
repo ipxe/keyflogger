@@ -623,15 +623,27 @@ uart_tx_irq:
 ;;;
 ;;; Drain UART transmit ring
 ;;;
+;;; Preserves all registers except STATUS
+;;;
 uart_tx_sync:
-	;; Return when transmit ring is empty
+	;; Preserve W, BSR, and FSR0 on stack
+	movwi	--FSR1
+	movf	BSR, w
+	movwi	--FSR1
+	movf	FSR0H, w
+	movwi	--FSR1
+	movf	FSR0L, w
+	movwi	--FSR1
+
+	;; Loop until transmit ring is empty
+uart_tx_sync_loop:
 	banksel	PIE1
 	btfss	PIE1, TXIE
-	return
+	bra	uart_tx_sync_wait_done
 
 	;; Wait for TXREG to become empty
-	banksel	PIR1
 uart_tx_sync_wait:
+	banksel	PIR1
 	btfss	PIR1, TXIF
 	bra	uart_tx_sync_wait
 
@@ -639,7 +651,18 @@ uart_tx_sync_wait:
 	call	uart_tx_next
 
 	;; Loop until transmit ring is empty
-	bra	uart_tx_sync
+	bra	uart_tx_sync_loop
+
+	;; Restore registers and return
+uart_tx_sync_wait_done:
+	moviw	FSR1++
+	movwf	FSR0L
+	moviw	FSR1++
+	movwf	FSR0H
+	moviw	FSR1++
+	movwf	BSR
+	moviw	FSR1++
+	return
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
